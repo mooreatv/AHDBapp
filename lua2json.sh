@@ -8,7 +8,7 @@
 # Example usage:
 # ./lua2json.sh < test1.lua > test1.json
 # Or
-# ./convert.sh < "C:\Program Files (x86)\World of Warcraft\_classic_\WTF\Account\$ACCT\SavedVariables\AuctionDB.lua" > auctiondb.json
+# ./lua2json.sh < "C:\Program Files (x86)\World of Warcraft\_classic_\WTF\Account\$ACCT\SavedVariables\AuctionDB.lua" > auctiondb.json
 #
 # If you don't like regular expressions, don't look further :)
 #

@@ -1,8 +1,12 @@
 #! /usr/bin/bash
 # Crude Lua table (wow saved variables) to Json "converter"
 # (c) 2019 moorea@ymail.com
+# See GPLv3 License
+# Please ask if you need a different license.
+# Credit/mention welcome if you reuse this.
+#
 # If you don't like regular expressions, don't look further :)
-
+#
 echo "{"
 # In order, sed expressions:
 # Add "" around toplevel array names

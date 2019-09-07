@@ -21,7 +21,7 @@ sed -E -e 's/^([^": }\t]+)/"\1"/' \
     /^[^:]+$/ {if (startnest) gsub("{$", "[", l); startnest=0; inarray=1} 
     /:/ {inarray=0} 
     /{$/ {startnest=1}
-    {print l; l=$0} 
+    {if (l) print l; l=$0} 
     END {print l}
     '
 echo "}"

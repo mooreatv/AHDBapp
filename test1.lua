@@ -36,4 +36,14 @@ AuctionDBSaved = {
 		}, -- [1]
 	},
 	["showNewItems"] = 20,
+	["test nil shouldn't be replaced"] = {
+		[0] = "foo nil",
+		[8] = "bar 8 nil",
+	},
+	["test nil array entry"] = {
+		"foo nil 1", -- [1]
+		nil, -- [2]
+		"foo nil 3", -- [3]
+	},
+	["bug can't end on array for now"] = true,
 }

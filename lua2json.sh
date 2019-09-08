@@ -18,17 +18,22 @@ echo "{"
 # Remove -- comments
 # Change = to :
 # Change ["foo"] to "foo"
+# Change [123] to "123" (keys in json can only be strings)
+# Change nil array keys to null
 # Then Awk to remove trailing coma and turn list to arrays
+# NOTE: anchors/quote boundaries are important to not replace inside the middle of a string value
 sed -E -e 's/^([^": }\t]+)/"\1"/' \
     -e "s/ -- .*$//g" \
     -e "s/ = /: /g" \
     -e 's/\["/"/g' \
-    -e 's/\"]/"/g' | \
-    awk '
+    -e 's/\"]/"/g' \
+    -e 's/^([ \t]*)\[([0-9.]+)\]:/\1"\2":/' \
+    -e 's/^([ \t]*)nil,$/\1null,/' \
+    | awk '
     BEGIN {startnest=0; inarray=0}
-    /},?$/ {gsub(",$", "", l); if (inarray) gsub("}", "]")} 
+    /},?$/ {gsub(",$", "", l); if (inarray) gsub("}", "]"); inarray=0} 
     /^[^:]+$/ {if (startnest) gsub("{$", "[", l); startnest=0; inarray=1} 
-    /:/ {inarray=0} 
+    /: / {inarray=0} 
     /{$/ {startnest=1}
     {if (l) print l; l=$0} 
     END {print l}

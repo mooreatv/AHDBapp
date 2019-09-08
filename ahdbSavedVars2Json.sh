@@ -22,7 +22,8 @@ ACCT=$1
 FP="$wowclassic\\$ACCT\\SavedVariables\\AuctionDB.lua"
 
 if [[ ! -f "$FP" ]]; then
-    echo "Can't find AuctionDB saved var in $WOWPATH for account $1"
+    echo "Can't find AuctionDB saved var in $wowclassic for account $1"
+    ls "$wowclassic"
     help
 fi
 # Skip toplevel/1 level of structure:

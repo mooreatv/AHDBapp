@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -115,11 +116,12 @@ func ahDeserializeScanResult(data string) (int, int, float64) { //map[string]str
 // Go version of :AHGetAuctionInfoByLink() https://github.com/mooreatv/MoLib/blob/v7.11.01/MoLibAH.lua#L86
 
 var (
-	jsonOnly = flag.Bool("j", false, "Only do the lua to json conversion")
+	jsonOnly = flag.Bool("jsonOnly", false, "Only do the lua to json conversion")
 	// BufferSize flag (needs to be big enough for long packed AH scan lines)
-	buffSize = flag.Float64("s", 16, "Buffer size in Mbytes")
+	buffSize = flag.Float64("bufferSize", 16, "Buffer size in Mbytes")
 	// Whether to skip the top level
-	skipToplevel = flag.Bool("t", false, "Skip top level entity")
+	skipToplevel = flag.Bool("jsonSkipToplevel", false, "Skip top level entity")
+	jsonInput    = flag.Bool("jsonInput", false, "Input is already Json and not Lua needing conversion")
 )
 
 func main() {
@@ -130,9 +132,19 @@ func main() {
 		return
 	}
 	log.Infof("AHDB parser started...")
+	var jR io.Reader
+	if *jsonInput {
+		jR = os.Stdin
+	} else {
+		var jW io.Writer
+		jR, jW = io.Pipe()
+		go func() {
+			lua2json.Lua2Json(os.Stdin, jW, true /* need to skip to level */, *buffSize)
+		}()
+	}
 	var ahdb JSONData
-	if err := json.NewDecoder(os.Stdin).Decode(&ahdb); err != nil {
-		log.Fatalf("Unable to unmarshal json result from stdin: %v", err)
+	if err := json.NewDecoder(jR).Decode(&ahdb); err != nil {
+		log.Fatalf("Unable to unmarshal json result from lua2json: %v", err)
 	}
 	// Will fully parse the data later, for now... for demo
 	// "The Price of Linen"

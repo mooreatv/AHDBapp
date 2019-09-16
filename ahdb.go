@@ -35,7 +35,8 @@ type ScanEntry struct {
 
 // JSONData is toplevel structure produced by ahdbSavedVars2Json
 type JSONData struct {
-	Ah []ScanEntry
+	ItemDB map[string]interface{} `json:"itemDB_2"` // most values are strings except _formatVersion_ and _count_
+	Ah     []ScanEntry            `json:"ah"`
 }
 
 // AuctionEntry is the data we have about each listing
@@ -143,8 +144,10 @@ func main() {
 		}()
 	}
 	var ahdb JSONData
-	if err := json.NewDecoder(jR).Decode(&ahdb); err != nil {
-		log.Fatalf("Unable to unmarshal json result from lua2json: %v", err)
+	jdec := json.NewDecoder(jR)
+	jdec.UseNumber()
+	if err := jdec.Decode(&ahdb); err != nil {
+		log.Fatalf("Unable to unmarshal json result: %v", err)
 	}
 	// Will fully parse the data later, for now... for demo
 	// "The Price of Linen"
@@ -159,5 +162,12 @@ func main() {
 			entry.Ts, entry.DataFormatVersion, entry.Realm, entry.Faction,
 			entry.Count, entry.ItemDBCount, entry.ItemsCount, count, price/100.)
 	}
-	log.Infof("Done, found %d scans", len(ahdb.Ah))
+	if ahdb.ItemDB["_formatVersion_"].(json.Number).String() != "4" {
+		log.Errf("Unexpected itemDB format version %v", ahdb.ItemDB["_formatVersion_"])
+	}
+	ic, _ := ahdb.ItemDB["_count_"].(json.Number).Int64()
+	if int(ic) != len(ahdb.ItemDB)-4 {
+		log.Errf("Unexpected itemDB count %v vs %d - 4", ahdb.ItemDB["_count_"], len(ahdb.ItemDB))
+	}
+	log.Infof("Done, found %d scans. ItemDB has %d items.", len(ahdb.Ah), len(ahdb.ItemDB)-4) // 4 _ meta keys so far
 }

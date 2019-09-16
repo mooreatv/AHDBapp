@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mooreatv/AHDBapp/lua2json"
+
 	"fortio.org/fortio/log"
 )
 
@@ -112,8 +114,21 @@ func ahDeserializeScanResult(data string) (int, int, float64) { //map[string]str
 
 // Go version of :AHGetAuctionInfoByLink() https://github.com/mooreatv/MoLib/blob/v7.11.01/MoLibAH.lua#L86
 
+var (
+	jsonOnly = flag.Bool("j", false, "Only do the lua to json conversion")
+	// BufferSize flag (needs to be big enough for long packed AH scan lines)
+	buffSize = flag.Float64("s", 16, "Buffer size in Mbytes")
+	// Whether to skip the top level
+	skipToplevel = flag.Bool("t", false, "Skip top level entity")
+)
+
 func main() {
 	flag.Parse()
+	if *jsonOnly {
+		log.Infof("AHDB lua2json started...")
+		lua2json.Lua2Json(os.Stdin, os.Stdout, *skipToplevel, *buffSize)
+		return
+	}
 	log.Infof("AHDB parser started...")
 	var ahdb JSONData
 	if err := json.NewDecoder(os.Stdin).Decode(&ahdb); err != nil {

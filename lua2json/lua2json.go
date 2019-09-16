@@ -21,14 +21,12 @@
 // Then Awk to remove trailing coma and turn list to arrays
 // NOTE: anchors/quote boundaries are important to not replace inside the middle of a string value
 
-package main
+package lua2json // import "github.com/mooreatv/AHDBapp/lua2json"
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"io"
-	"os"
 	"regexp"
 	"strings"
 
@@ -148,15 +146,4 @@ func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 		log.Errf("error scanning: %v", err)
 	}
 	log.Infof("Done, %d lines converted", numLines)
-}
-
-var (
-	buffSize     = flag.Float64("s", 16, "Buffer size in Mbytes")
-	skipToplevel = flag.Bool("t", false, "Skip top level entity")
-)
-
-func main() {
-	flag.Parse()
-	log.Infof("AHDB lua2json started...")
-	Lua2Json(os.Stdin, os.Stdout, *skipToplevel, *buffSize)
 }

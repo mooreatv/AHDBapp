@@ -76,7 +76,7 @@ func brace2bracket(line string) string {
 }
 
 // Lua2Json stream converts a simple wow lua saved variables to json
-func Lua2Json(in io.Reader, out io.Writer, bufSizeMb float64) {
+func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 	re := make([]regsub, len(rei))
 	for i, r := range rei {
 		re[i].find = regexp.MustCompile(r.Find)
@@ -96,8 +96,14 @@ func Lua2Json(in io.Reader, out io.Writer, bufSizeMb float64) {
 	colonFind := regexp.MustCompile(`^[^:]+$`)
 	prevLine := ""
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := strings.TrimRight(scanner.Text(), " \t")
+		if line == "" {
+			continue // only count/process non white space/empty lines
+		}
 		numLines = numLines + 1
+		if numLines == 1 && skipTop {
+			continue // skip first/top level
+		}
 		for _, r := range re {
 			line = r.find.ReplaceAllString(line, r.replaceBy)
 
@@ -134,7 +140,9 @@ func Lua2Json(in io.Reader, out io.Writer, bufSizeMb float64) {
 		}
 		prevLine = line
 	}
-	fmt.Fprintln(out, prevLine) // 	   END {print l}
+	if !skipTop {
+		fmt.Fprintln(out, prevLine) // 	   END {print l}
+	}
 	out.Write([]byte("}\n"))
 	if err := scanner.Err(); err != nil {
 		log.Errf("error scanning: %v", err)
@@ -143,11 +151,12 @@ func Lua2Json(in io.Reader, out io.Writer, bufSizeMb float64) {
 }
 
 var (
-	buffSize = flag.Float64("s", 16, "Buffer size in Mbytes")
+	buffSize     = flag.Float64("s", 16, "Buffer size in Mbytes")
+	skipToplevel = flag.Bool("t", false, "Skip top level entity")
 )
 
 func main() {
 	flag.Parse()
 	log.Infof("AHDB lua2json started...")
-	Lua2Json(os.Stdin, os.Stdout, *buffSize)
+	Lua2Json(os.Stdin, os.Stdout, *skipToplevel, *buffSize)
 }

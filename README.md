@@ -13,7 +13,6 @@ Already includes a pretty cool
 You need
 - golang https://golang.org/dl/
 - then type `go get github.com/mooreatv/AHDBapp` it will download the source into `~/go/src/github/mooreatv/AHDBapp` (and build the binary in ~/go/bin)
-- `go get github.com/mooreatv/AHDBapp` it will download into `~/go/src/github/mooreatv/AHDBapp` 
 - then
   - On windows `go\bin\AHDBapp.exe < "c:\Program Files (x86)\World of Warcraft\_classic_\WTF\Account\YOURACCOUNT\SavedVariables\AuctionDB.lua" > data.csv`
   - On unix/mac `~/go/bin/AHDBapp < ...path_to_.../SavedVariables/AuctionDB.lua > data.csv`
@@ -22,6 +21,7 @@ You need
 You used to need
 - bash and some basic unix utilities; easiest way to get those is through git bash that comes with https://git-scm.com/downloads
 - golang https://golang.org/dl/
+- `go get github.com/mooreatv/AHDBapp` it will download into `~/go/src/github/mooreatv/AHDBapp` 
 - ./ahdbSavedVars2Json.sh YOURWOWACCOUNT
 - go run ahdb.go < auctiondb.json > auctiondb.csv
 

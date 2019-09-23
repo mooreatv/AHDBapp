@@ -16,7 +16,7 @@ You need
 - `go get github.com/mooreatv/AHDBapp` it will download into `~/go/src/github/mooreatv/AHDBapp` 
 - then
   - On windows `go\bin\AHDBapp.exe < "c:\Program Files (x86)\World of Warcraft\_classic_\WTF\Account\YOURACCOUNT\SavedVariables\AuctionDB.lua" > data.csv`
-  - On unix/mac `~/go/bin/AHDBapp.exe < ...path_to_/SavedVariables/AuctionDB.lua > data.csv`
+  - On unix/mac `~/go/bin/AHDBapp < ...path_to_/SavedVariables/AuctionDB.lua > data.csv`
 
 ### old instructions
 You used to need

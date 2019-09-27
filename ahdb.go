@@ -140,7 +140,16 @@ func SaveToDb(items map[string]interface{}) {
 	}
 	log.Infof("ItemDB at start has %d items", count)
 	tx, err := db.BeginTx(context.Background(), nil)
-	stmtIns, err := tx.Prepare("INSERT IGNORE INTO items VALUES( ?, ? )")
+	/* 	this (also) works to conditionally update only if changed (when passed k,v twice but is slower
+		stmt := `
+	REPLACE INTO items (id, link) select ?,?
+		WHERE (SELECT COUNT(*) FROM items WHERE id=? AND link=?) = 0;
+	`
+	*/
+	stmt := `INSERT INTO items (id, link) VALUES(?,?) ON  DUPLICATE KEY UPDATE 
+				ts=IF(VALUES(link) = link, ts, CURRENT_TIMESTAMP),
+				link=VALUES(link)`
+	stmtIns, err := tx.Prepare(stmt)
 	if err != nil {
 		log.Fatalf("Can't prepare statement for insert: %v", err)
 	}
@@ -159,6 +168,7 @@ func SaveToDb(items map[string]interface{}) {
 			continue
 		}
 		bytes = bytes + lk + len(v)
+		// _, err = stmtIns.Exec(k, v, k, v)
 		_, err = stmtIns.Exec(k, v)
 		if err != nil {
 			log.Fatalf("Can't insert in DB: %v", err)

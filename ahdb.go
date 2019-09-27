@@ -8,6 +8,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -15,6 +16,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
+
+	"database/sql"
+
+	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/mooreatv/AHDBapp/lua2json"
 
@@ -114,6 +120,62 @@ func ahDeserializeScanResult(data string) (int, int, float64) { //map[string]str
 	return numItems, count, minPrice
 }
 
+// SaveToDb saves items -> db
+func SaveToDb(items map[string]interface{}) {
+	user := os.Getenv("MYSQL_USER")
+	passwd := os.Getenv("MYSQL_PASSWORD")
+	if user == "" {
+		user = "root"
+	}
+	log.Infof("Starting DB save...")
+	db, err := sql.Open("mysql", user+":"+passwd+"@/ahdb")
+	if err != nil {
+		log.Fatalf("Can't open DB: %v", err)
+	}
+	defer db.Close()
+	count := -1
+	err = db.QueryRow("select count(*) from items").Scan(&count)
+	if err != nil {
+		log.Fatalf("Can't count items: %v", err)
+	}
+	log.Infof("ItemDB at start has %d items", count)
+	tx, err := db.BeginTx(context.Background(), nil)
+	stmtIns, err := tx.Prepare("INSERT IGNORE INTO items VALUES( ?, ? )")
+	if err != nil {
+		log.Fatalf("Can't prepare statement for insert: %v", err)
+	}
+	defer stmtIns.Close()
+	n := 0
+	bytes := 0
+	start := time.Now()
+	for k, vi := range items {
+		v, ok := vi.(string)
+		if !ok {
+			continue
+		}
+		lk := len(k)
+		if lk == 0 {
+			log.Warnf("Invalid empty key %v value %v in itemDB", k, v)
+			continue
+		}
+		bytes = bytes + lk + len(v)
+		_, err = stmtIns.Exec(k, v)
+		if err != nil {
+			log.Fatalf("Can't insert in DB: %v", err)
+		}
+		n = n + 1
+	}
+	if err = tx.Commit(); err != nil {
+		log.Fatalf("Can't DB commit: %v", err)
+	}
+	elapsed := time.Since(start)
+	log.Infof("Inserted/updated %d items, %.2f Mbytes in MySQL DB in %s", n, float64(bytes)/1024./1024., elapsed)
+	if err = db.QueryRow("select count(*) from items").Scan(&count); err != nil {
+		log.Fatalf("Can't count items after insert: %v", err)
+	}
+	log.Infof("ItemDB now has %d items", count)
+}
+
 // Go version of :AHGetAuctionInfoByLink() https://github.com/mooreatv/MoLib/blob/v7.11.01/MoLibAH.lua#L86
 
 var (
@@ -170,4 +232,5 @@ func main() {
 		log.Errf("Unexpected itemDB count %v vs %d - 4", ahdb.ItemDB["_count_"], len(ahdb.ItemDB))
 	}
 	log.Infof("Done, found %d scans. ItemDB has %d items.", len(ahdb.Ah), len(ahdb.ItemDB)-4) // 4 _ meta keys so far
+	SaveToDb(ahdb.ItemDB)
 }

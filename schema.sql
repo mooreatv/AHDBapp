@@ -10,6 +10,20 @@ create table if not exists items (
     link VARCHAR(255) NOT NULL,  # in classic, longest so far is 104
     ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
-)
+);
 
-# create table if not exists auctions
+# drop table if exists scanmeta
+create table if not exists scanmeta (
+	id INT AUTO_INCREMENT,
+    realm VARCHAR(16) NOT NULL,
+    faction ENUM('Neutral', 'Alliance', 'Horde') NOT NULL,
+    scanner VARCHAR(64) NOT NULL, -- who scanned
+    ts TIMESTAMP,
+	PRIMARY KEY (`id`),
+	CONSTRAINT unique_scan UNIQUE (ts, scanner)
+);
+
+create table if not exists auctions (
+	scanId INT NOT NULL REFERENCES scanmeta(id),
+	itemId VARCHAR(32) NOT NULL REFERENCES items(id)
+);

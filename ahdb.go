@@ -33,14 +33,15 @@ type ScanEntry struct {
 	Ts                int
 	Realm             string
 	Faction           string
+	Char              string
 	Count             int
 	ItemDBCount       int
 	ItemsCount        int
 	Data              string
 }
 
-// JSONData is toplevel structure produced by ahdbSavedVars2Json
-type JSONData struct {
+// AHData is toplevel structure produced by ahdbSavedVars2Json
+type AHData struct {
 	ItemDB map[string]interface{} `json:"itemDB_2"` // most values are strings except _formatVersion_ and _count_
 	Ah     []ScanEntry            `json:"ah"`
 }
@@ -120,21 +121,34 @@ func ahDeserializeScanResult(data string) (int, int, float64) { //map[string]str
 	return numItems, count, minPrice
 }
 
-// SaveToDb saves items -> db
-func SaveToDb(items map[string]interface{}) {
-	user := os.Getenv("MYSQL_USER")
-	passwd := os.Getenv("MYSQL_PASSWORD")
-	if user == "" {
-		user = "root"
-	}
-	log.Infof("Starting DB save...")
-	db, err := sql.Open("mysql", user+":"+passwd+"@/ahdb")
+// SaveScans exports the scan to the DB
+func SaveScans(db *sql.DB, scans []ScanEntry) {
+	stmt := "INSERT INTO scanmeta (realm, faction, scanner, ts) VALUES(?,?,?,FROM_UNIXTIME(?))"
+	stmtIns, err := db.Prepare(stmt)
 	if err != nil {
-		log.Fatalf("Can't open DB: %v", err)
+		log.Fatalf("Can't prepare statement for scanmeta insert: %v", err)
 	}
-	defer db.Close()
+	for idx := range scans {
+		entry := scans[idx]
+		_, err = stmtIns.Exec(entry.Realm, entry.Faction, entry.Char, entry.Ts)
+		if err != nil {
+			log.Warnf("Skipping duplicate entry: %s %d : %v", entry.Char, entry.Ts, err)
+			continue
+		}
+		numItems, count, price := ahDeserializeScanResult(entry.Data)
+		if numItems != entry.ItemsCount {
+			log.Errf("Mismatch between deserialization item count %d and saved %d", numItems, entry.ItemsCount)
+		}
+		fmt.Printf("%d,%d,%q,%q,%d,%d,%d,%d,%.3f\n",
+			entry.Ts, entry.DataFormatVersion, entry.Realm, entry.Faction,
+			entry.Count, entry.ItemDBCount, entry.ItemsCount, count, price/100.)
+	}
+}
+
+// SaveItems exports the items to the DB
+func SaveItems(db *sql.DB, items map[string]interface{}) {
 	count := -1
-	err = db.QueryRow("select count(*) from items").Scan(&count)
+	err := db.QueryRow("select count(*) from items").Scan(&count)
 	if err != nil {
 		log.Fatalf("Can't count items: %v", err)
 	}
@@ -186,6 +200,23 @@ func SaveToDb(items map[string]interface{}) {
 	log.Infof("ItemDB now has %d items", count)
 }
 
+// SaveToDb saves items -> db
+func SaveToDb(ahd AHData) {
+	user := os.Getenv("MYSQL_USER")
+	passwd := os.Getenv("MYSQL_PASSWORD")
+	if user == "" {
+		user = "root"
+	}
+	log.Infof("Starting DB save...")
+	db, err := sql.Open("mysql", user+":"+passwd+"@/ahdb")
+	if err != nil {
+		log.Fatalf("Can't open DB: %v", err)
+	}
+	defer db.Close()
+	SaveItems(db, ahd.ItemDB)
+	SaveScans(db, ahd.Ah)
+}
+
 // Go version of :AHGetAuctionInfoByLink() https://github.com/mooreatv/MoLib/blob/v7.11.01/MoLibAH.lua#L86
 
 var (
@@ -215,24 +246,11 @@ func main() {
 			lua2json.Lua2Json(os.Stdin, jW, true /* need to skip to level */, *buffSize)
 		}()
 	}
-	var ahdb JSONData
+	var ahdb AHData
 	jdec := json.NewDecoder(jR)
 	jdec.UseNumber()
 	if err := jdec.Decode(&ahdb); err != nil {
 		log.Fatalf("Unable to unmarshal json result: %v", err)
-	}
-	// Will fully parse the data later, for now... for demo
-	// "The Price of Linen"
-	fmt.Println(`"Ts","Version","Realm","Faction","Count","ItemDBCount","ItemsCount", "LinenCount", "Linen Price per cloth (in silver)"`)
-	for idx := range ahdb.Ah {
-		entry := ahdb.Ah[idx]
-		numItems, count, price := ahDeserializeScanResult(entry.Data)
-		if numItems != entry.ItemsCount {
-			log.Errf("Mismatch between deserialization item count %d and saved %d", numItems, entry.ItemsCount)
-		}
-		fmt.Printf("%d,%d,%q,%q,%d,%d,%d,%d,%.3f\n",
-			entry.Ts, entry.DataFormatVersion, entry.Realm, entry.Faction,
-			entry.Count, entry.ItemDBCount, entry.ItemsCount, count, price/100.)
 	}
 	if ahdb.ItemDB["_formatVersion_"].(json.Number).String() != "4" {
 		log.Errf("Unexpected itemDB format version %v", ahdb.ItemDB["_formatVersion_"])
@@ -241,6 +259,6 @@ func main() {
 	if int(ic) != len(ahdb.ItemDB)-4 {
 		log.Errf("Unexpected itemDB count %v vs %d - 4", ahdb.ItemDB["_count_"], len(ahdb.ItemDB))
 	}
-	log.Infof("Done, found %d scans. ItemDB has %d items.", len(ahdb.Ah), len(ahdb.ItemDB)-4) // 4 _ meta keys so far
-	SaveToDb(ahdb.ItemDB)
+	log.Infof("Deserialization done, found %d scans. ItemDB has %d items.", len(ahdb.Ah), len(ahdb.ItemDB)-4) // 4 _ meta keys so far
+	SaveToDb(ahdb)
 }

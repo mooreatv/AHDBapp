@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -66,14 +65,12 @@ func extractAuctionData(auction string) AuctionEntry {
 }
 
 // Go version of :ahDeserializeScanResult() https://github.com/mooreatv/MoLib/blob/v7.11.01/MoLibAH.lua#L375
-func ahDeserializeScanResult(data string) (int, int, float64) { //map[string]string {
-	// kr empty map
-	//kr := map[string]string{}
-	log.Debugf("Deserializing data length %d", len(data))
+func ahDeserializeScanResult(stmt *sql.Stmt, scan ScanEntry, scanID int64) {
+	data := scan.Data
+	log.LogVf("Deserializing data length %d", len(data))
 	numItems := 0
-	count := 0
+	opCount := 0
 	itemEntries := strings.Split(data, " ")
-	minPrice := float64(0)
 	for itemEntryIdx := range itemEntries {
 		itemEntry := itemEntries[itemEntryIdx]
 		numItems = numItems + 1
@@ -82,9 +79,6 @@ func ahDeserializeScanResult(data string) (int, int, float64) { //map[string]str
 			log.Errf("Couldn't split %q into 2 by '!': %#v", itemEntry, itemSplit)
 		}
 		item := itemSplit[0]
-		if item != "i2589" {
-			continue
-		}
 		rest := itemSplit[1]
 		// kr[item] = {}
 		// entry := kr[item]
@@ -100,49 +94,58 @@ func ahDeserializeScanResult(data string) (int, int, float64) { //map[string]str
 			for aIdx := range auctions {
 				a := extractAuctionData(auctions[aIdx])
 				log.Debugf("Auction %#v", a)
-				// table.insert(entry[seller], a)
-				count += a.ItemCount
-				// todo: use fancy fortio stats lib
-				if a.Buyout > 0 {
-					price := float64(a.Buyout) / float64(a.ItemCount)
-					if minPrice > 0 {
-						if price < minPrice {
-							minPrice = price
-						}
-					} else {
-						minPrice = price
-					}
+				// scanId, itemId, ts, seller, timeLeft, itemCount, minBid, buyout, curBid)
+				_, err := stmt.Exec(scanID, item, scan.Ts, seller, a.TimeLeft, a.ItemCount, a.MinBid, a.Buyout, a.CurBid)
+				opCount = opCount + 1
+				if err != nil {
+					log.Fatalf("Can't insert in DB op#%d for scanid %d: %v", opCount, scanID, err)
 				}
 			}
 		}
 	}
-	log.Debugf("Recreated %d items results", numItems)
-	// return kr
-	return numItems, count, minPrice
+	log.Infof("Inserted %d auctions for %d items for scanId %d", opCount, numItems, scanID)
+	if numItems != scan.ItemsCount {
+		log.Errf("Mismatch between deserialization item count %d and saved %d", numItems, scan.ItemsCount)
+	}
 }
 
 // SaveScans exports the scan to the DB
 func SaveScans(db *sql.DB, scans []ScanEntry) {
-	stmt := "INSERT INTO scanmeta (realm, faction, scanner, ts) VALUES(?,?,?,FROM_UNIXTIME(?))"
-	stmtIns, err := db.Prepare(stmt)
+	stmtMeta := "INSERT INTO scanmeta (realm, faction, scanner, ts) VALUES(?,?,?,FROM_UNIXTIME(?))"
+	stmtMetaIns, err := db.Prepare(stmtMeta)
 	if err != nil {
 		log.Fatalf("Can't prepare statement for scanmeta insert: %v", err)
 	}
+	stmtAuction := `
+INSERT INTO auctions (scanId, itemId, ts, seller, timeLeft, itemCount, minBid, buyout, curBid)
+			 VALUES (?,?, FROM_UNIXTIME(?), ?,   ?,         ?,        ?,      ?,      ?)
+`
 	for idx := range scans {
 		entry := scans[idx]
-		_, err = stmtIns.Exec(entry.Realm, entry.Faction, entry.Char, entry.Ts)
+		res, err := stmtMetaIns.Exec(entry.Realm, entry.Faction, entry.Char, entry.Ts)
 		if err != nil {
-			log.Warnf("Skipping duplicate entry: %s %d : %v", entry.Char, entry.Ts, err)
+			log.Infof("Skipping duplicate entry: %s %d : %v", entry.Char, entry.Ts, err)
 			continue
 		}
-		numItems, count, price := ahDeserializeScanResult(entry.Data)
-		if numItems != entry.ItemsCount {
-			log.Errf("Mismatch between deserialization item count %d and saved %d", numItems, entry.ItemsCount)
+		scanID := int64(-1)
+		if scanID, err = res.LastInsertId(); err != nil {
+			log.Fatalf("Unable to get id after scanmeta insert: %v", err)
 		}
-		fmt.Printf("%d,%d,%q,%q,%d,%d,%d,%d,%.3f\n",
-			entry.Ts, entry.DataFormatVersion, entry.Realm, entry.Faction,
-			entry.Count, entry.ItemDBCount, entry.ItemsCount, count, price/100.)
+		log.LogVf("Inserted successfully scan meta id %d", scanID)
+		tx, err := db.BeginTx(context.Background(), nil)
+		if err != nil {
+			log.Fatalf("Can't start a transaction: %v", err)
+		}
+		stmtIns, err := tx.Prepare(stmtAuction)
+		if err != nil {
+			log.Fatalf("Can't prepare statement for insert: %v", err)
+		}
+		ahDeserializeScanResult(stmtIns, entry, scanID)
+		if err = tx.Commit(); err != nil {
+			log.Fatalf("Can't DB commit auction for scan %d: %v", scanID, err)
+		}
 	}
+	log.Infof("After big commit of all the scans...")
 }
 
 // SaveItems exports the items to the DB
@@ -154,6 +157,9 @@ func SaveItems(db *sql.DB, items map[string]interface{}) {
 	}
 	log.Infof("ItemDB at start has %d items", count)
 	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		log.Fatalf("Can't start a transaction: %v", err)
+	}
 	/* 	this (also) works to conditionally update only if changed (when passed k,v twice but is slower
 		stmt := `
 	REPLACE INTO items (id, link) select ?,?

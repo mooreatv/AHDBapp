@@ -10,14 +10,17 @@ Already includes a pretty cool
 
 ## Getting started
 
-You need
+ahdb.go now reads lua and writes to a MySql DB directly (needed schema is in schema.sql)
+
+### old instructions
+You used to need/do
 - golang https://golang.org/dl/
 - then type `go get github.com/mooreatv/AHDBapp` it will download the source into `~/go/src/github/mooreatv/AHDBapp` (and build the binary in ~/go/bin)
 - then
   - On windows `go\bin\AHDBapp.exe < "c:\Program Files (x86)\World of Warcraft\_classic_\WTF\Account\YOURACCOUNT\SavedVariables\AuctionDB.lua" > data.csv`
   - On unix/mac `~/go/bin/AHDBapp < ...path_to_.../SavedVariables/AuctionDB.lua > data.csv`
 
-### old instructions
+### even older instructions
 You used to need
 - bash and some basic unix utilities; easiest way to get those is through git bash that comes with https://git-scm.com/downloads
 - golang https://golang.org/dl/

@@ -210,11 +210,15 @@ func SaveItems(db *sql.DB, items map[string]interface{}) {
 func SaveToDb(ahd AHData) {
 	user := os.Getenv("MYSQL_USER")
 	passwd := os.Getenv("MYSQL_PASSWORD")
+	connect := os.Getenv("MYSQL_CONNECTION_INFO")
 	if user == "" {
 		user = "root"
 	}
+	if connect == "" {
+		connect = "tcp(:3306)"
+	}
 	log.Infof("Starting DB save...")
-	db, err := sql.Open("mysql", user+":"+passwd+"@/ahdb")
+	db, err := sql.Open("mysql", user+":"+passwd+"@"+connect+"/ahdb")
 	if err != nil {
 		log.Fatalf("Can't open DB: %v", err)
 	}
@@ -237,11 +241,11 @@ var (
 func main() {
 	flag.Parse()
 	if *jsonOnly {
-		log.Infof("AHDB lua2json started...")
+		log.Infof("AHDB lua2json started (reading from stdin)...")
 		lua2json.Lua2Json(os.Stdin, os.Stdout, *skipToplevel, *buffSize)
 		return
 	}
-	log.Infof("AHDB parser started...")
+	log.Infof("AHDB parser started (reading from stdin)...")
 	var jR io.Reader
 	if *jsonInput {
 		jR = os.Stdin
@@ -256,7 +260,7 @@ func main() {
 	jdec := json.NewDecoder(jR)
 	jdec.UseNumber()
 	if err := jdec.Decode(&ahdb); err != nil {
-		log.Fatalf("Unable to unmarshal json result: %v", err)
+		log.Fatalf("Unable to unmarshal json result: %#v", err)
 	}
 	if ahdb.ItemDB["_formatVersion_"].(json.Number).String() != "4" {
 		log.Errf("Unexpected itemDB format version %v", ahdb.ItemDB["_formatVersion_"])

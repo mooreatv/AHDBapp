@@ -94,11 +94,13 @@ func ahDeserializeScanResult(stmt *sql.Stmt, scan ScanEntry, scanID int64) {
 			for aIdx := range auctions {
 				a := extractAuctionData(auctions[aIdx])
 				log.Debugf("Auction %#v", a)
-				// scanId, itemId, ts, seller, timeLeft, itemCount, minBid, buyout, curBid)
-				_, err := stmt.Exec(scanID, item, scan.Ts, seller, a.TimeLeft, a.ItemCount, a.MinBid, a.Buyout, a.CurBid)
 				opCount = opCount + 1
-				if err != nil {
-					log.Fatalf("Can't insert in DB op#%d for scanid %d: %v", opCount, scanID, err)
+				// scanId, itemId, ts, seller, timeLeft, itemCount, minBid, buyout, curBid)
+				if stmt != nil {
+					_, err := stmt.Exec(scanID, item, scan.Ts, seller, a.TimeLeft, a.ItemCount, a.MinBid, a.Buyout, a.CurBid)
+					if err != nil {
+						log.Fatalf("Can't insert in DB op#%d for scanid %d: %v", opCount, scanID, err)
+					}
 				}
 			}
 		}
@@ -112,9 +114,13 @@ func ahDeserializeScanResult(stmt *sql.Stmt, scan ScanEntry, scanID int64) {
 // SaveScans exports the scan to the DB
 func SaveScans(db *sql.DB, scans []ScanEntry) {
 	stmtMeta := "INSERT INTO scanmeta (realm, faction, scanner, ts) VALUES(?,?,?,FROM_UNIXTIME(?))"
-	stmtMetaIns, err := db.Prepare(stmtMeta)
-	if err != nil {
-		log.Fatalf("Can't prepare statement for scanmeta insert: %v", err)
+	var stmtMetaIns *sql.Stmt
+	var err error
+	if db != nil {
+		stmtMetaIns, err = db.Prepare(stmtMeta)
+		if err != nil {
+			log.Fatalf("Can't prepare statement for scanmeta insert: %v", err)
+		}
 	}
 	stmtAuction := `
 INSERT INTO auctions (scanId, itemId, ts, seller, timeLeft, itemCount, minBid, buyout, curBid)
@@ -122,6 +128,10 @@ INSERT INTO auctions (scanId, itemId, ts, seller, timeLeft, itemCount, minBid, b
 `
 	for idx := range scans {
 		entry := scans[idx]
+		if db == nil {
+			ahDeserializeScanResult(nil, entry, -1)
+			continue
+		}
 		res, err := stmtMetaIns.Exec(entry.Realm, entry.Faction, entry.Char, entry.Ts)
 		if err != nil {
 			log.Infof("Skipping duplicate entry: %s %d : %v", entry.Char, entry.Ts, err)
@@ -145,35 +155,40 @@ INSERT INTO auctions (scanId, itemId, ts, seller, timeLeft, itemCount, minBid, b
 			log.Fatalf("Can't DB commit auction for scan %d: %v", scanID, err)
 		}
 	}
-	log.Infof("After big commit of all the scans...")
+	//log.Infof("After big commit of all the scans...")
 }
 
 // SaveItems exports the items to the DB
 func SaveItems(db *sql.DB, items map[string]interface{}) {
 	count := -1
-	err := db.QueryRow("select count(*) from items").Scan(&count)
-	if err != nil {
-		log.Fatalf("Can't count items: %v", err)
-	}
-	log.Infof("ItemDB at start has %d items", count)
-	tx, err := db.BeginTx(context.Background(), nil)
-	if err != nil {
-		log.Fatalf("Can't start a transaction: %v", err)
-	}
-	/* 	this (also) works to conditionally update only if changed (when passed k,v twice but is slower
-		stmt := `
-	REPLACE INTO items (id, link) select ?,?
-		WHERE (SELECT COUNT(*) FROM items WHERE id=? AND link=?) = 0;
-	`
-	*/
-	stmt := `INSERT INTO items (id, link) VALUES(?,?) ON  DUPLICATE KEY UPDATE 
+	var stmtIns *sql.Stmt
+	var tx *sql.Tx
+	var err error
+	if db != nil {
+		err := db.QueryRow("select count(*) from items").Scan(&count)
+		if err != nil {
+			log.Fatalf("Can't count items: %v", err)
+		}
+		log.Infof("ItemDB at start has %d items", count)
+		tx, err = db.BeginTx(context.Background(), nil)
+		if err != nil {
+			log.Fatalf("Can't start a transaction: %v", err)
+		}
+		/* 	this (also) works to conditionally update only if changed (when passed k,v twice but is slower
+			stmt := `
+		REPLACE INTO items (id, link) select ?,?
+			WHERE (SELECT COUNT(*) FROM items WHERE id=? AND link=?) = 0;
+		`
+		*/
+		stmt := `INSERT INTO items (id, link) VALUES(?,?) ON  DUPLICATE KEY UPDATE 
 				ts=IF(VALUES(link) = link, ts, CURRENT_TIMESTAMP),
 				link=VALUES(link)`
-	stmtIns, err := tx.Prepare(stmt)
-	if err != nil {
-		log.Fatalf("Can't prepare statement for insert: %v", err)
+		stmtIns, err = tx.Prepare(stmt)
+		if err != nil {
+			log.Fatalf("Can't prepare statement for insert: %v", err)
+		}
+		defer stmtIns.Close()
 	}
-	defer stmtIns.Close()
 	n := 0
 	bytes := 0
 	start := time.Now()
@@ -188,26 +203,32 @@ func SaveItems(db *sql.DB, items map[string]interface{}) {
 			continue
 		}
 		bytes = bytes + lk + len(v)
-		// _, err = stmtIns.Exec(k, v, k, v)
-		_, err = stmtIns.Exec(k, v)
-		if err != nil {
-			log.Fatalf("Can't insert in DB: %v", err)
+		if db != nil {
+			// _, err = stmtIns.Exec(k, v, k, v)
+			_, err = stmtIns.Exec(k, v)
+			if err != nil {
+				log.Fatalf("Can't insert in DB: %v", err)
+			}
 		}
 		n = n + 1
 	}
-	if err = tx.Commit(); err != nil {
-		log.Fatalf("Can't DB commit: %v", err)
+	if db != nil {
+		if err = tx.Commit(); err != nil {
+			log.Fatalf("Can't DB commit: %v", err)
+		}
+		elapsed := time.Since(start)
+		log.Infof("Inserted/updated %d items, %.2f Mbytes in MySQL DB in %s", n, float64(bytes)/1024./1024., elapsed)
+		if err = db.QueryRow("select count(*) from items").Scan(&count); err != nil {
+			log.Fatalf("Can't count items after insert: %v", err)
+		}
+		log.Infof("ItemDB now has %d items", count)
+	} else {
+		log.Infof("Parsed %d items, %.2f Mbytes in %s", n, float64(bytes)/1024./1024., time.Since(start))
 	}
-	elapsed := time.Since(start)
-	log.Infof("Inserted/updated %d items, %.2f Mbytes in MySQL DB in %s", n, float64(bytes)/1024./1024., elapsed)
-	if err = db.QueryRow("select count(*) from items").Scan(&count); err != nil {
-		log.Fatalf("Can't count items after insert: %v", err)
-	}
-	log.Infof("ItemDB now has %d items", count)
 }
 
 // SaveToDb saves items -> db
-func SaveToDb(ahd AHData) {
+func SaveToDb(ahd AHData, noDB bool) {
 	user := os.Getenv("MYSQL_USER")
 	passwd := os.Getenv("MYSQL_PASSWORD")
 	connect := os.Getenv("MYSQL_CONNECTION_INFO")
@@ -217,12 +238,16 @@ func SaveToDb(ahd AHData) {
 	if connect == "" {
 		connect = "tcp(:3306)"
 	}
-	log.Infof("Starting DB save...")
-	db, err := sql.Open("mysql", user+":"+passwd+"@"+connect+"/ahdb")
-	if err != nil {
-		log.Fatalf("Can't open DB: %v", err)
+	log.Infof("Starting DB save with noDB=%v ...", noDB)
+	var db *sql.DB
+	var err error
+	if !noDB {
+		db, err = sql.Open("mysql", user+":"+passwd+"@"+connect+"/ahdb")
+		if err != nil {
+			log.Fatalf("Can't open DB: %v", err)
+		}
+		defer db.Close()
 	}
-	defer db.Close()
 	SaveItems(db, ahd.ItemDB)
 	SaveScans(db, ahd.Ah)
 }
@@ -236,6 +261,7 @@ var (
 	// Whether to skip the top level
 	skipToplevel = flag.Bool("jsonSkipToplevel", false, "Skip top level entity")
 	jsonInput    = flag.Bool("jsonInput", false, "Input is already Json and not Lua needing conversion")
+	noDB         = flag.Bool("nodb", false, "Don't try to connect to a live DB when the flag is passed")
 )
 
 func main() {
@@ -270,5 +296,5 @@ func main() {
 		log.Errf("Unexpected itemDB count %v vs %d - 4", ahdb.ItemDB["_count_"], len(ahdb.ItemDB))
 	}
 	log.Infof("Deserialization done, found %d scans. ItemDB has %d items.", len(ahdb.Ah), len(ahdb.ItemDB)-4) // 4 _ meta keys so far
-	SaveToDb(ahdb)
+	SaveToDb(ahdb, *noDB)
 }

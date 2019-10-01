@@ -102,19 +102,24 @@ func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 		if numLines == 1 && skipTop {
 			continue // skip first/top level
 		}
+		log.Debugf("line before REs: %q", line)
 		for _, r := range re {
 			line = r.find.ReplaceAllString(line, r.replaceBy)
-
 		}
+		log.Debugf("line after REs: %q\nin array %v nest %v prevLine: %q", line, inArray, startNest, prevLine)
 		// Awk conversion section:
 		//		/},?$/ {gsub(",$", "", l); if (inarray) gsub("}", "]"); inarray=0}
 		if trailingCommaFind.MatchString(line) {
-			prevLine = prevLine[0 : len(prevLine)-1]
+			lpp := len(prevLine) - 1
+			if lpp >= 0 && prevLine[lpp] == ',' {
+				prevLine = prevLine[0:lpp]
+			}
 			if inArray {
 				line = strings.ReplaceAll(line, "}", "]")
 			}
 			inArray = false
 		}
+		log.Debugf("#2 prevLine: %q", prevLine)
 		//		/^[^:]+$/ {if (startnest) gsub("{$", "[", l); startnest=0; inarray=1}
 		if colonFind.MatchString(line) {
 			if startNest {
@@ -131,6 +136,7 @@ func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 		lastPos := len(line) - 1
 		if lastPos >= 0 && line[lastPos] == '{' {
 			startNest = true
+			inArray = true // for empty arrays/lists
 		}
 		//		{if (l) print l; l=$0}
 		if prevLine != "" {

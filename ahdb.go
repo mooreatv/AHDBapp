@@ -288,8 +288,10 @@ func main() {
 	if err := jdec.Decode(&ahdb); err != nil {
 		log.Fatalf("Unable to unmarshal json result: %#v", err)
 	}
-	if ahdb.ItemDB["_formatVersion_"].(json.Number).String() != "4" {
+	fv := ahdb.ItemDB["_formatVersion_"]
+	if fv == nil || fv.(json.Number).String() != "4" {
 		log.Errf("Unexpected itemDB format version %v", ahdb.ItemDB["_formatVersion_"])
+		os.Exit(1)
 	}
 	ic, _ := ahdb.ItemDB["_count_"].(json.Number).Int64()
 	if int(ic) != len(ahdb.ItemDB)-4 {

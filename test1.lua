@@ -1,9 +1,15 @@
 
 AuctionDBSaved = {
-	["autoScan"] = true,
 	["autoSave"] = false,
 	["addonVersion"] = "vX.YY.ZZ",
-	["devMode"] = true,
+	["showBigButton"] = true,
+	["ahWaitForSellers"] = true,
+	["addonHash"] = "@project-abbreviated-hash@",
+	["autoScanDelay"] = 10,
+	["allowLDBI"] = true,
+	["ldbi"] = {
+	},
+	["showText"] = true,
 	["itemDB_2"] = {
 		["i15010?25"] = "|cff1eff00|Hitem:15010::::::25:1477166976:1:::::::|h[Primal Wraps of Intellect]|h|r",
 		["i4567?504"] = "|cff1eff00|Hitem:4567::::::504:2033773568:2:::::::|h[Merc Sword of the Wolf]|h|r",

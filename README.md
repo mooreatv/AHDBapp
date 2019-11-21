@@ -12,6 +12,11 @@ Already includes a pretty cool
 
 ahdb.go now reads lua and writes to a MySql DB directly (needed schema is in schema.sql)
 
+Environment variables to control the access to the DB:
+- optional `MYSQL_USER` (defaults to root)
+- `MYSQL_PASSWORD`
+- optional `MYSQL_CONNECTION_INFO` (defaults to tcp to 3306)
+
 ### old instructions
 You used to need/do
 - golang https://golang.org/dl/

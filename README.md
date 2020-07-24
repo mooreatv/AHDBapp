@@ -18,7 +18,7 @@ Environment variables to control the access to the DB:
 - optional `MYSQL_CONNECTION_INFO` (defaults to tcp to 3306)
 
 You need:
-- golang https://golang.org/dl/
+- golang https://golang.org/dl/ (on windows you may still need to get git (https://git-scm.com/downloads) to use `go get` or you can download the files from this repo and use `go build .`)
 - then type `go get github.com/mooreatv/AHDBapp` it will download the source into `~/go/src/github/mooreatv/AHDBapp` (and build the binary in ~/go/bin)
 - then
   - On windows `go\bin\AHDBapp.exe < "c:\Program Files (x86)\World of Warcraft\_classic_\WTF\Account\YOURACCOUNT\SavedVariables\AuctionDB.lua"`

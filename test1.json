@@ -22,6 +22,7 @@
 		"i2194": "|cff0070dd|Hitem:2194::::::::1:::1::::|h[Diamond Hammer]|h|r",
 		"i7406?854": "|cff1eff00|Hitem:7406::::::854:1939051008:5:::::::|h[Infiltrator Cord of the Eagle]|h|r",
 		"i15918?1803": "|cff1eff00|Hitem:15918::::::1803:68648960:5:::1::::|h[Conjurer's Sphere of Arcane Wrath]|h|r",
+		"i3024": "1419,1,2,3,1,21|cffffffff|Hitem:3024::::::::5:::14::::|h[BKP 2700 \"Enforcer\"]|h|r",
 		"i6556?19": "|cff1eff00|Hitem:6556::::::19:1969748864:1:::::::|h[Bard's Bracers of Stamina]|h|r"
 	},
 	"autoScanDelay": 10,

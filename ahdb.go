@@ -13,6 +13,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -45,6 +46,21 @@ type AHData struct {
 	Ah     []ScanEntry            `json:"ah"`
 }
 
+// ItemEntry is what the raw link gets parsed into
+type ItemEntry struct {
+	ID         string
+	ShortID    int
+	Name       string
+	SellPrice  int
+	StackCount int
+	ClassID    int
+	SubClassID int
+	Rarity     int
+	MinLevel   int
+	Link       string
+	Olink      string
+}
+
 // AuctionEntry is the data we have about each listing
 type AuctionEntry struct {
 	TimeLeft  int
@@ -52,6 +68,31 @@ type AuctionEntry struct {
 	MinBid    int
 	Buyout    int
 	CurBid    int
+}
+
+// '5000,1,1,0,1,0|cffffffff|Hitem:14046::::::::5:::::::|h[Runecloth Bag]|h|r'
+var itemRegex = regexp.MustCompile(`^([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+)(\|[^|]+\|Hitem:([0-9]+)[^|]+\|h\[([^]]+)\]\|h\|r)$`)
+
+func extractItemInfo(id, olink string) *ItemEntry {
+	e := ItemEntry{ID: id, Olink: olink}
+	if len(olink) == 0 || olink[0] == '|' {
+		return &e
+	}
+	res := itemRegex.FindStringSubmatch(olink)
+	if res == nil {
+		log.Critf("Unexpected mismatch for item %q", olink)
+		return &e
+	}
+	e.SellPrice, _ = strconv.Atoi(res[1])
+	e.StackCount, _ = strconv.Atoi(res[2])
+	e.ClassID, _ = strconv.Atoi(res[3])
+	e.SubClassID, _ = strconv.Atoi(res[4])
+	e.Rarity, _ = strconv.Atoi(res[5])
+	e.MinLevel, _ = strconv.Atoi(res[6])
+	e.ShortID, _ = strconv.Atoi(res[8])
+	e.Link = res[7]
+	e.Name = res[9]
+	return &e
 }
 
 // Go version of :extractAuctionData() https://github.com/mooreatv/MoLib/blob/v7.11.01/MoLibAH.lua#L437
@@ -180,9 +221,20 @@ func SaveItems(db *sql.DB, items map[string]interface{}) {
 			WHERE (SELECT COUNT(*) FROM items WHERE id=? AND link=?) = 0;
 		`
 		*/
-		stmt := `INSERT INTO items (id, link) VALUES(?,?) ON  DUPLICATE KEY UPDATE 
-				ts=IF(VALUES(link) = link, ts, CURRENT_TIMESTAMP),
-				link=VALUES(link)`
+		stmt := `INSERT INTO items (id, shortid, name, sellprice, stackcount, classid, subclassid, rarity, minlevel, link, olink)
+							VALUES(?  , ?      , ?   , ?        , ?         , ?      , ?          , ?     , ?       , ?   , ?)
+							ON  DUPLICATE KEY UPDATE
+				ts=IF(VALUES(olink) = olink, ts, CURRENT_TIMESTAMP),
+				shortid=VALUES(shortid),
+				name=VALUES(name),
+				sellprice=VALUES(sellprice),
+				stackcount=VALUES(stackcount),
+				classid=VALUES(classid),
+				subclassid=VALUES(subclassid),
+				rarity=VALUES(rarity),
+				minlevel=VALUES(minlevel),
+				link=VALUES(link),
+				olink=VALUES(olink)`
 		stmtIns, err = tx.Prepare(stmt)
 		if err != nil {
 			log.Fatalf("Can't prepare statement for insert: %v", err)
@@ -205,7 +257,8 @@ func SaveItems(db *sql.DB, items map[string]interface{}) {
 		bytes = bytes + lk + len(v)
 		if db != nil {
 			// _, err = stmtIns.Exec(k, v, k, v)
-			_, err = stmtIns.Exec(k, v)
+			e := extractItemInfo(k, v)
+			_, err = stmtIns.Exec(e.ID, e.ShortID, e.Name, e.SellPrice, e.StackCount, e.ClassID, e.SubClassID, e.Rarity, e.MinLevel, e.Link, e.Olink)
 			if err != nil {
 				log.Fatalf("Can't insert in DB: %v", err)
 			}
@@ -289,14 +342,14 @@ func main() {
 		log.Fatalf("Unable to unmarshal json result: %#v", err)
 	}
 	fv := ahdb.ItemDB["_formatVersion_"]
-	if fv == nil || fv.(json.Number).String() != "4" {
+	if fv == nil || fv.(json.Number).String() != "5" {
 		log.Errf("Unexpected itemDB format version %v", ahdb.ItemDB["_formatVersion_"])
 		os.Exit(1)
 	}
 	ic, _ := ahdb.ItemDB["_count_"].(json.Number).Int64()
-	if int(ic) != len(ahdb.ItemDB)-4 {
-		log.Errf("Unexpected itemDB count %v vs %d - 4", ahdb.ItemDB["_count_"], len(ahdb.ItemDB))
+	if int(ic) != len(ahdb.ItemDB)-5 {
+		log.Errf("Unexpected itemDB count %v vs %d - 5", ahdb.ItemDB["_count_"], len(ahdb.ItemDB))
 	}
-	log.Infof("Deserialization done, found %d scans. ItemDB has %d items.", len(ahdb.Ah), len(ahdb.ItemDB)-4) // 4 _ meta keys so far
+	log.Infof("Deserialization done, found %d scans. ItemDB has %d items.", len(ahdb.Ah), len(ahdb.ItemDB)-5) // 4 _ meta keys so far
 	SaveToDb(ahdb, *noDB)
 }

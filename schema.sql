@@ -7,7 +7,16 @@ use ahdb;
 drop table if exists items;
 create table if not exists items (
     id  VARCHAR(32) NOT NULL,    # in classic, longest so far is 15
+    shortid INT NOT NULL,
+    name VARCHAR(128) NOT NULL,
+    SellPrice INT NOT NULL,
+    StackCount INT NOT NULL,
+    ClassID INT NOT NULL,
+    SubClassID INT NOT NULL,
+    Rarity INT NOT NULL,
+    MinLevel INT NOT NULL,
     link VARCHAR(255) NOT NULL,  # in classic, longest so far is 104
+    olink VARCHAR(255) NOT NULL,  # raw version from addon, includes the above encoded
     ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
 );

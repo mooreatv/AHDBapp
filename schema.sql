@@ -36,24 +36,17 @@ drop table if exists auctions;
 create table if not exists auctions (
     scanId INT NOT NULL REFERENCES scanmeta(id),
     itemId VARCHAR(32) NOT NULL REFERENCES items(id),
-    ts TIMESTAMP NOT NULL, # denormalized, same as scanmeta's
+    ts TIMESTAMP NOT NULL, # denormalized, same as scanmeta
     seller VARCHAR(64), # denormalized
     timeLeft TINYINT NOT NULL, # enum for time left: 1 is short, 2 medium...
-    itemCount SMALLINT NOT NULL, # auction's stack size
+    itemCount SMALLINT NOT NULL, # auction stack size
     minBid INT NOT NULL, # initial/minbid value (in copper)
     buyout INT NOT NULL, # we use 0 for no buyout specified, like the wow api
     curBid INT NOT NULL # like wise 0 for no bid
 );
 
-drop table if exists auctions_bulk;
-create table auctions_bulk (
-    scanId INT NOT NULL,
-    itemId VARCHAR(32) NOT NULL,
-    ts TIMESTAMP NOT NULL,
-    seller VARCHAR(64),
-    timeLeft TINYINT NOT NULL,
-    itemCount SMALLINT NOT NULL,
-    minBid INT NOT NULL,
-    buyout INT NOT NULL,
-    curBid INT NOT NULL
-);
+CREATE index buyoutidx ON auctions (buyout);
+CREATE fulltext index nameidx on items (name);
+CREATE index rarityidx on items (rarity);
+CREATE index sellpriceidx on items (sellprice);
+CREATE index itemididx on auctions (itemid);

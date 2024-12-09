@@ -24,7 +24,7 @@ import (
 
 	"github.com/mooreatv/AHDBapp/lua2json"
 
-	"fortio.org/fortio/log"
+	"fortio.org/log"
 )
 
 // ScanEntry is 1 auction house scan result

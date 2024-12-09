@@ -30,7 +30,7 @@ import (
 	"regexp"
 	"strings"
 
-	"fortio.org/fortio/log"
+	"fortio.org/log"
 )
 
 // RegsubInput is the input pattern+replacement string (or pattern)

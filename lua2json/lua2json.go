@@ -33,13 +33,13 @@ import (
 	"fortio.org/log"
 )
 
-// RegsubInput is the input pattern+replacement string (or pattern)
+// RegsubInput is the input pattern+replacement string (or pattern).
 type RegsubInput struct {
 	Find      string
 	ReplaceBy string
 }
 
-// Regsub is a pattern+replacement string (or pattern), with the compile regular expression
+// Regsub is a pattern+replacement string (or pattern), with the compile regular expression.
 type regsub struct {
 	find      *regexp.Regexp
 	replaceBy string
@@ -55,16 +55,16 @@ type regsub struct {
 	    -e 's/^([ \t]*)nil,$/\1null,/'
 */
 var rei = []RegsubInput{
-	{`^([^": }\t]+)`, `"$1"`},
 	{` -- .*$`, ""},
 	{` = `, `: `},
 	{`\["`, `"`},
 	{`([^\\])\"]`, `$1"`},
 	{`^([ \t]*)\[([0-9.]+)\]:`, `$1"$2":`},
 	{`^([ \t]*)nil,$`, `${1}null,`},
+	{`^([^": {}\t0-9]+)`, `"$1"`},
 }
 
-// changes trailing braces into trailing bracket
+// changes trailing braces into trailing bracket.
 func brace2bracket(line string) string {
 	lastPos := len(line) - 1
 	if lastPos >= 0 && line[lastPos] == '{' {
@@ -73,7 +73,7 @@ func brace2bracket(line string) string {
 	return line
 }
 
-// Lua2Json stream converts a simple wow lua saved variables to json
+// Lua2Json stream converts a simple wow lua saved variables to json.
 func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 	re := make([]regsub, len(rei))
 	for i, r := range rei {
@@ -86,7 +86,7 @@ func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 	buf := make([]byte, 0, sz)
 	scanner.Buffer(buf, sz)
 	numLines := 0
-	out.Write([]byte("{\n"))
+	_, _ = out.Write([]byte("{\n"))
 	// BEGIN {startnest=0; inarray=0}
 	startNest := false
 	inArray := false
@@ -98,7 +98,7 @@ func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 		if line == "" {
 			continue // only count/process non white space/empty lines
 		}
-		numLines = numLines + 1
+		numLines++
 		if numLines == 1 && skipTop {
 			continue // skip first/top level
 		}
@@ -129,7 +129,7 @@ func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 			inArray = true
 		}
 		//		/: / {inarray=0}
-		if strings.Index(line, ": ") >= 0 {
+		if strings.Contains(line, ": ") {
 			inArray = false
 		}
 		//		/{$/ {startnest=1}
@@ -147,7 +147,7 @@ func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 	if !skipTop {
 		fmt.Fprintln(out, prevLine) // 	   END {print l}
 	}
-	out.Write([]byte("}\n"))
+	_, _ = out.Write([]byte("}\n"))
 	if err := scanner.Err(); err != nil {
 		log.Errf("error scanning: %v", err)
 	}

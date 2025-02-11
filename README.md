@@ -21,7 +21,7 @@ You need:
 - golang https://golang.org/dl/ (on windows you may still need to get git (https://git-scm.com/downloads)
 - then type `go install github.com/mooreatv/AHDBapp@latest` it will download and build and install the binary in ~/go/bin
 - then
-  - On windows `go\bin\AHDBapp.exe < "c:\Program Files (x86)\World of Warcraft\_classic_\WTF\Account\YOURACCOUNT\SavedVariables\AuctionDB.lua"`
+  - On windows `go\bin\AHDBapp.exe < "c:\Program Files (x86)\World of Warcraft\_classic_era_\WTF\Account\YOURACCOUNT\SavedVariables\AuctionDB.lua"`
   - On unix/mac `~/go/bin/AHDBapp < ...path_to_.../SavedVariables/AuctionDB.lua`
 
 ### old instructions

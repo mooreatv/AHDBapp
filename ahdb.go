@@ -9,6 +9,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"io"
@@ -18,19 +19,16 @@ import (
 	"strings"
 	"time"
 
-	"database/sql"
-
-	_ "github.com/go-sql-driver/mysql"
-
-	"github.com/mooreatv/AHDBapp/lua2json"
-
+	"fortio.org/cli"
 	"fortio.org/log"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/mooreatv/AHDBapp/lua2json"
 )
 
-// ScanEntry is 1 auction house scan result
+// ScanEntry is 1 auction house scan result.
 type ScanEntry struct {
 	DataFormatVersion int
-	Ts                int
+	TS                int
 	Realm             string
 	Faction           string
 	Char              string
@@ -40,13 +38,13 @@ type ScanEntry struct {
 	Data              string
 }
 
-// AHData is toplevel structure produced by ahdbSavedVars2Json
+// AHData is toplevel structure produced by ahdbSavedVars2Json.
 type AHData struct {
 	ItemDB map[string]interface{} `json:"itemDB_2"` // most values are strings except _formatVersion_ and _count_
 	Ah     []ScanEntry            `json:"ah"`
 }
 
-// ItemEntry is what the raw link gets parsed into
+// ItemEntry is what the raw link gets parsed into.
 type ItemEntry struct {
 	ID         string
 	ShortID    int
@@ -61,7 +59,7 @@ type ItemEntry struct {
 	Olink      string
 }
 
-// AuctionEntry is the data we have about each listing
+// AuctionEntry is the data we have about each listing.
 type AuctionEntry struct {
 	TimeLeft  int
 	ItemCount int
@@ -70,7 +68,7 @@ type AuctionEntry struct {
 	CurBid    int
 }
 
-// '5000,1,1,0,1,0|cffffffff|Hitem:14046::::::::5:::::::|h[Runecloth Bag]|h|r'
+// Re for '5000,1,1,0,1,0|cffffffff|Hitem:14046::::::::5:::::::|h[Runecloth Bag]|h|r'.
 var itemRegex = regexp.MustCompile(`^([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+)(\|[^|]+\|Hitem:([0-9]+)[^|]+\|h\[([^]]+)\]\|h\|r)$`)
 
 func extractItemInfo(id, olink string) *ItemEntry {
@@ -114,7 +112,7 @@ func ahDeserializeScanResult(stmt *sql.Stmt, scan ScanEntry, scanID int64) {
 	itemEntries := strings.Split(data, " ")
 	for itemEntryIdx := range itemEntries {
 		itemEntry := itemEntries[itemEntryIdx]
-		numItems = numItems + 1
+		numItems++
 		itemSplit := strings.SplitN(itemEntry, "!", 2)
 		if len(itemSplit) != 2 {
 			log.Errf("Couldn't split %q into 2 by '!': %#v", itemEntry, itemSplit)
@@ -135,10 +133,10 @@ func ahDeserializeScanResult(stmt *sql.Stmt, scan ScanEntry, scanID int64) {
 			for aIdx := range auctions {
 				a := extractAuctionData(auctions[aIdx])
 				log.Debugf("Auction %#v", a)
-				opCount = opCount + 1
+				opCount++
 				// scanId, itemId, ts, seller, timeLeft, itemCount, minBid, buyout, curBid)
 				if stmt != nil {
-					_, err := stmt.Exec(scanID, item, scan.Ts, seller, a.TimeLeft, a.ItemCount, a.MinBid, a.Buyout, a.CurBid)
+					_, err := stmt.Exec(scanID, item, scan.TS, seller, a.TimeLeft, a.ItemCount, a.MinBid, a.Buyout, a.CurBid)
 					if err != nil {
 						log.Fatalf("Can't insert in DB op#%d for scanid %d: %v", opCount, scanID, err)
 					}
@@ -152,7 +150,7 @@ func ahDeserializeScanResult(stmt *sql.Stmt, scan ScanEntry, scanID int64) {
 	}
 }
 
-// SaveScans exports the scan to the DB
+// SaveScans exports the scan to the DB.
 func SaveScans(db *sql.DB, scans []ScanEntry) {
 	stmtMeta := "INSERT INTO scanmeta (realm, faction, scanner, ts) VALUES(?,?,?,FROM_UNIXTIME(?))"
 	var stmtMetaIns *sql.Stmt
@@ -173,12 +171,12 @@ INSERT INTO auctions (scanId, itemId, ts, seller, timeLeft, itemCount, minBid, b
 			ahDeserializeScanResult(nil, entry, -1)
 			continue
 		}
-		res, err := stmtMetaIns.Exec(entry.Realm, entry.Faction, entry.Char, entry.Ts)
+		res, err := stmtMetaIns.Exec(entry.Realm, entry.Faction, entry.Char, entry.TS)
 		if err != nil {
-			log.Infof("Skipping duplicate entry: %s %d : %v", entry.Char, entry.Ts, err)
+			log.Infof("Skipping duplicate entry: %s %d : %v", entry.Char, entry.TS, err)
 			continue
 		}
-		scanID := int64(-1)
+		var scanID int64
 		if scanID, err = res.LastInsertId(); err != nil {
 			log.Fatalf("Unable to get id after scanmeta insert: %v", err)
 		}
@@ -196,17 +194,17 @@ INSERT INTO auctions (scanId, itemId, ts, seller, timeLeft, itemCount, minBid, b
 			log.Fatalf("Can't DB commit auction for scan %d: %v", scanID, err)
 		}
 	}
-	//log.Infof("After big commit of all the scans...")
+	// log.Infof("After big commit of all the scans...")
 }
 
-// SaveItems exports the items to the DB
+// SaveItems exports the items to the DB.
 func SaveItems(db *sql.DB, items map[string]interface{}) {
 	count := -1
 	var stmtIns *sql.Stmt
 	var tx *sql.Tx
 	var err error
 	if db != nil {
-		err := db.QueryRow("select count(*) from items").Scan(&count)
+		err = db.QueryRow("select count(*) from items").Scan(&count)
 		if err != nil {
 			log.Fatalf("Can't count items: %v", err)
 		}
@@ -257,13 +255,16 @@ func SaveItems(db *sql.DB, items map[string]interface{}) {
 		bytes = bytes + lk + len(v)
 		if db != nil {
 			// _, err = stmtIns.Exec(k, v, k, v)
+			if k == "_locale_" {
+				continue
+			}
 			e := extractItemInfo(k, v)
 			_, err = stmtIns.Exec(e.ID, e.ShortID, e.Name, e.SellPrice, e.StackCount, e.ClassID, e.SubClassID, e.Rarity, e.MinLevel, e.Link, e.Olink)
 			if err != nil {
 				log.Fatalf("Can't insert in DB: %v", err)
 			}
 		}
-		n = n + 1
+		n++
 	}
 	if db != nil {
 		if err = tx.Commit(); err != nil {
@@ -280,8 +281,8 @@ func SaveItems(db *sql.DB, items map[string]interface{}) {
 	}
 }
 
-// SaveToDb saves items -> db
-func SaveToDb(ahd AHData, noDB bool) {
+// SaveToDB saves items -> db.
+func SaveToDB(ahd AHData, noDB bool) {
 	user := os.Getenv("MYSQL_USER")
 	passwd := os.Getenv("MYSQL_PASSWORD")
 	connect := os.Getenv("MYSQL_CONNECTION_INFO")
@@ -309,16 +310,16 @@ func SaveToDb(ahd AHData, noDB bool) {
 
 var (
 	jsonOnly = flag.Bool("jsonOnly", false, "Only do the lua to json conversion")
-	// BufferSize flag (needs to be big enough for long packed AH scan lines)
+	// BufferSize flag (needs to be big enough for long packed AH scan lines).
 	buffSize = flag.Float64("bufferSize", 16, "Buffer size in Mbytes")
-	// Whether to skip the top level
+	// Whether to skip the top level.
 	skipToplevel = flag.Bool("jsonSkipToplevel", false, "Skip top level entity")
 	jsonInput    = flag.Bool("jsonInput", false, "Input is already Json and not Lua needing conversion")
 	noDB         = flag.Bool("nodb", false, "Don't try to connect to a live DB when the flag is passed")
 )
 
 func main() {
-	flag.Parse()
+	cli.Main()
 	if *jsonOnly {
 		log.Infof("AHDB lua2json started (reading from stdin)...")
 		lua2json.Lua2Json(os.Stdin, os.Stdout, *skipToplevel, *buffSize)
@@ -351,5 +352,5 @@ func main() {
 		log.Errf("Unexpected itemDB count %v vs %d - 5", ahdb.ItemDB["_count_"], len(ahdb.ItemDB))
 	}
 	log.Infof("Deserialization done, found %d scans. ItemDB has %d items.", len(ahdb.Ah), len(ahdb.ItemDB)-5) // 4 _ meta keys so far
-	SaveToDb(ahdb, *noDB)
+	SaveToDB(ahdb, *noDB)
 }

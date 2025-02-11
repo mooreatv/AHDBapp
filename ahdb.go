@@ -255,6 +255,9 @@ func SaveItems(db *sql.DB, items map[string]interface{}) {
 		bytes = bytes + lk + len(v)
 		if db != nil {
 			// _, err = stmtIns.Exec(k, v, k, v)
+			if k == "_locale_" {
+				continue
+			}
 			e := extractItemInfo(k, v)
 			_, err = stmtIns.Exec(e.ID, e.ShortID, e.Name, e.SellPrice, e.StackCount, e.ClassID, e.SubClassID, e.Rarity, e.MinLevel, e.Link, e.Olink)
 			if err != nil {

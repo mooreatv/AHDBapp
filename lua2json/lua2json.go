@@ -55,13 +55,13 @@ type regsub struct {
 	    -e 's/^([ \t]*)nil,$/\1null,/'
 */
 var rei = []RegsubInput{
-	{`^([^": }\t]+)`, `"$1"`},
 	{` -- .*$`, ""},
 	{` = `, `: `},
 	{`\["`, `"`},
 	{`([^\\])\"]`, `$1"`},
 	{`^([ \t]*)\[([0-9.]+)\]:`, `$1"$2":`},
 	{`^([ \t]*)nil,$`, `${1}null,`},
+	{`^([^": {}\t0-9]+)`, `"$1"`},
 }
 
 // changes trailing braces into trailing bracket.

@@ -11,6 +11,7 @@ AuctionDBSaved = {
 	},
 	["showText"] = true,
 	["itemDB_2"] = {
+["i14593"] = "2210,1,4,1,2,30|cff1eff00|Hitem:14593::::::::5:::::::::|h[Hawkeye's Cloak]|h|r",
 		["_formatVersion_"] = 5,
 		["_count_"] = 8,
 		["_created_"] = 1567326768,
@@ -18,7 +19,6 @@ AuctionDBSaved = {
 		["i15010?25"] = "|cff1eff00|Hitem:15010::::::25:1477166976:1:::::::|h[Primal Wraps of Intellect]|h|r",
 		["i4567?504"] = "|cff1eff00|Hitem:4567::::::504:2033773568:2:::::::|h[Merc Sword of the Wolf]|h|r",
 		["i1497"] = "|cff9d9d9d|Hitem:1497::::::::1:::::::|h[Calico Cloak]|h|r",
-["i14593"] = "2210,1,4,1,2,30|cff1eff00|Hitem:14593::::::::5:::::::::|h[Hawkeye's Cloak]|h|r",
 		["i15127?767"] = "|cff1eff00|Hitem:15127::::::767:1846961024:5:::::::|h[Robust Shoulders of the Owl]|h|r",
 		["i2194"] = "|cff0070dd|Hitem:2194::::::::1:::1::::|h[Diamond Hammer]|h|r",
 		["i7406?854"] = "|cff1eff00|Hitem:7406::::::854:1939051008:5:::::::|h[Infiltrator Cord of the Eagle]|h|r",
@@ -29,7 +29,7 @@ AuctionDBSaved = {
 	["autoScanDelay"] = 10,
 	["AHDBminimapButtonbuttonPos"] = {
 		"BOTTOMLEFT", -- [1]
-		1348.88696289063, -- [2]
+1348.88696289063,
 		765.331176757813, -- [3]
 	},
 	["addonHash"] = "@project-abbreviated-hash@",

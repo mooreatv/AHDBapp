@@ -18,8 +18,8 @@ Environment variables to control the access to the DB:
 - optional `MYSQL_CONNECTION_INFO` (defaults to tcp to 3306)
 
 You need:
-- golang https://golang.org/dl/ (on windows you may still need to get git (https://git-scm.com/downloads) to use `go get` or you can download the files from this repo and use `go build .`)
-- then type `go get github.com/mooreatv/AHDBapp` it will download the source into `~/go/src/github/mooreatv/AHDBapp` (and build the binary in ~/go/bin)
+- golang https://golang.org/dl/ (on windows you may still need to get git (https://git-scm.com/downloads)
+- then type `go install github.com/mooreatv/AHDBapp@latest` it will download and build and install the binary in ~/go/bin
 - then
   - On windows `go\bin\AHDBapp.exe < "c:\Program Files (x86)\World of Warcraft\_classic_\WTF\Account\YOURACCOUNT\SavedVariables\AuctionDB.lua"`
   - On unix/mac `~/go/bin/AHDBapp < ...path_to_.../SavedVariables/AuctionDB.lua`
@@ -36,7 +36,7 @@ You used to need/do
 You used to need
 - bash and some basic unix utilities; easiest way to get those is through git bash that comes with https://git-scm.com/downloads
 - golang https://golang.org/dl/
-- `go get github.com/mooreatv/AHDBapp` it will download into `~/go/src/github/mooreatv/AHDBapp` 
+- `go get github.com/mooreatv/AHDBapp` it will download into `~/go/src/github/mooreatv/AHDBapp`
 - ./ahdbSavedVars2Json.sh YOURWOWACCOUNT
 - go run ahdb.go < auctiondb.json > auctiondb.csv
 

@@ -24,6 +24,7 @@ import (
 
 	"github.com/mooreatv/AHDBapp/lua2json"
 
+	"fortio.org/cli"
 	"fortio.org/log"
 )
 
@@ -318,7 +319,7 @@ var (
 )
 
 func main() {
-	flag.Parse()
+	cli.Main()
 	if *jsonOnly {
 		log.Infof("AHDB lua2json started (reading from stdin)...")
 		lua2json.Lua2Json(os.Stdin, os.Stdout, *skipToplevel, *buffSize)

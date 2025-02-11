@@ -1,0 +1,10 @@
+filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
+filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
+fortio.org/log v1.17.1 h1:YQoGyZBnXTVIs77/nZw7BppwSOIamP3I092PGBenBZs=
+fortio.org/log v1.17.1/go.mod h1:t58Spg9njjymvRioh5F6qKGSupEsnMjXLGWIS1i3khE=
+fortio.org/struct2env v0.4.1 h1:rJludAMO5eBvpWplWEQNqoVDFZr4RWMQX7RUapgZyc0=
+fortio.org/struct2env v0.4.1/go.mod h1:lENUe70UwA1zDUCX+8AsO663QCFqYaprk5lnPhjD410=
+github.com/go-sql-driver/mysql v1.8.1 h1:LedoTUt/eveggdHS9qUFC1EFSa8bU2+1pZjSRpvNJ1Y=
+github.com/go-sql-driver/mysql v1.8.1/go.mod h1:wEBSXgmK//2ZFJyE+qWnIsVGmvmEKlqwuVSjsCm7DZg=
+github.com/kortschak/goroutine v1.1.2 h1:lhllcCuERxMIK5cYr8yohZZScL1na+JM5JYPRclWjck=
+github.com/kortschak/goroutine v1.1.2/go.mod h1:zKpXs1FWN/6mXasDQzfl7g0LrGFIOiA6cLs9eXKyaMY=

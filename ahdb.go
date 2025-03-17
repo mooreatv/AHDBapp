@@ -22,7 +22,7 @@ import (
 	"fortio.org/cli"
 	"fortio.org/log"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/mooreatv/AHDBapp/lua2json"
+	"github.com/RobertMolenhouse/AHDBapp/lua2json"
 )
 
 // ScanEntry is 1 auction house scan result.
@@ -296,7 +296,7 @@ func SaveToDB(ahd AHData, noDB bool) {
 	var db *sql.DB
 	var err error
 	if !noDB {
-		db, err = sql.Open("mysql", user+":"+passwd+"@"+connect+"/ahdb")
+		db, err = sql.Open("mysql", user+":"+passwd+"@"+connect+"/ahdbally")
 		if err != nil {
 			log.Fatalf("Can't open DB: %v", err)
 		}

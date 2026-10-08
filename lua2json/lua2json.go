@@ -18,8 +18,12 @@
 // Change ["foo"] to "foo"
 // Change [123] to "123" (keys in json can only be strings)
 // Change nil array keys to null
-// Then Awk to remove trailing coma and turn list to arrays
+// Then remove trailing comas and turn lists into arrays (the awk part of the shell version; here with a stack of
+// open tables so lists of lists and objects inside lists close with the right ] or }).
 // NOTE: anchors/quote boundaries are important to not replace inside the middle of a string value
+// Key lines (["foo"] = value, [123] = value) only get their key converted, so string values are never altered
+// (e.g. a value containing " -- " or " = "), and lines that are just a value (list elements: strings, like a log line
+// with "12:34:56 ...: ...", numbers including negative ones, booleans, nil) are kept as json values.
 
 package lua2json // import "github.com/mooreatv/AHDBapp/lua2json"
 
@@ -64,6 +68,46 @@ var rei = []RegsubInput{
 	{`^([^": {}\t0-9]+)`, `"$1"`},
 }
 
+var (
+	// keyValueFind matches `["key"] = value` and `[123] = value` lines: indent, key, value.
+	keyValueFind = regexp.MustCompile(`^([ \t]*)\[("(?:[^"\\]|\\.)*"|-?[0-9.]+)\] = (.*)$`)
+	// keyFind matches a converted `"key": ...` line.
+	keyFind = regexp.MustCompile(`^[ \t]*"(?:[^"\\]|\\.)*": `)
+	// closeFind matches a table closing line.
+	closeFind = regexp.MustCompile(`^[ \t]*},?$`)
+	// nilElemFind matches a nil list element: indent, optional comma.
+	nilElemFind = regexp.MustCompile(`^([ \t]*)nil(,?)$`)
+	// valueElemFind matches a line that is only a (list element) value: string, number or boolean.
+	valueElemFind = regexp.MustCompile(`^[ \t]*("(?:[^"\\]|\\.)*"|-?[0-9.]+(?:[eE][-+]?[0-9]+)?|true|false),?$`)
+)
+
+// convertLine applies the lua to json line rewrites.
+func convertLine(line string, re []regsub) string {
+	if m := keyValueFind.FindStringSubmatch(line); m != nil {
+		key, value := m[2], m[3]
+		if key[0] != '"' {
+			key = `"` + key + `"` // keys in json can only be strings
+		}
+		switch value {
+		case "nil,":
+			value = "null,"
+		case "nil":
+			value = "null"
+		}
+		return m[1] + key + ": " + value
+	}
+	if valueElemFind.MatchString(line) {
+		return line // json as is
+	}
+	if m := nilElemFind.FindStringSubmatch(line); m != nil {
+		return m[1] + "null" + m[2]
+	}
+	for _, r := range re {
+		line = r.find.ReplaceAllString(line, r.replaceBy)
+	}
+	return line
+}
+
 // changes trailing braces into trailing bracket.
 func brace2bracket(line string) string {
 	lastPos := len(line) - 1
@@ -87,11 +131,10 @@ func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 	scanner.Buffer(buf, sz)
 	numLines := 0
 	_, _ = out.Write([]byte("{\n"))
-	// BEGIN {startnest=0; inarray=0}
-	startNest := false
-	inArray := false
-	trailingCommaFind := regexp.MustCompile(`},?$`)
-	colonFind := regexp.MustCompile(`^[^:]+$`)
+	// One entry per open table: 'o' object, 'a' array (list), 'u' not known yet. A table's first line decides: a key
+	// line makes it an object, anything else (a value, a nested table, or nothing: empty table) an array, whose
+	// opening line (still in prevLine) then gets its { turned into [. Starts with the object written above.
+	stack := []byte{'o'}
 	prevLine := ""
 	for scanner.Scan() {
 		line := strings.TrimRight(scanner.Text(), " \t")
@@ -103,42 +146,33 @@ func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 			continue // skip first/top level
 		}
 		log.Debugf("line before REs: %q", line)
-		for _, r := range re {
-			line = r.find.ReplaceAllString(line, r.replaceBy)
-		}
-		log.Debugf("line after REs: %q\nin array %v nest %v prevLine: %q", line, inArray, startNest, prevLine)
-		// Awk conversion section:
-		//		/},?$/ {gsub(",$", "", l); if (inarray) gsub("}", "]"); inarray=0}
-		if trailingCommaFind.MatchString(line) {
-			lpp := len(prevLine) - 1
-			if lpp >= 0 && prevLine[lpp] == ',' {
-				prevLine = prevLine[0:lpp]
-			}
-			if inArray {
-				line = strings.ReplaceAll(line, "}", "]")
-			}
-			inArray = false
-		}
-		log.Debugf("#2 prevLine: %q", prevLine)
-		//		/^[^:]+$/ {if (startnest) gsub("{$", "[", l); startnest=0; inarray=1}
-		if colonFind.MatchString(line) {
-			if startNest {
+		line = convertLine(line, re)
+		isClose := closeFind.MatchString(line)
+		top := len(stack) - 1
+		log.Debugf("line after REs: %q close %v stack %q prevLine: %q", line, isClose, stack, prevLine)
+		if top >= 0 && stack[top] == 'u' {
+			if !isClose && keyFind.MatchString(line) {
+				stack[top] = 'o'
+			} else {
+				stack[top] = 'a'
 				prevLine = brace2bracket(prevLine)
 			}
-			startNest = false
-			inArray = true
 		}
-		//		/: / {inarray=0}
-		if strings.Contains(line, ": ") {
-			inArray = false
+		if isClose {
+			// no trailing comma after the last element in json
+			if lpp := len(prevLine) - 1; lpp >= 0 && prevLine[lpp] == ',' {
+				prevLine = prevLine[0:lpp]
+			}
+			if top >= 0 {
+				if stack[top] == 'a' {
+					line = strings.Replace(line, "}", "]", 1)
+				}
+				stack = stack[:top]
+			}
 		}
-		//		/{$/ {startnest=1}
-		lastPos := len(line) - 1
-		if lastPos >= 0 && line[lastPos] == '{' {
-			startNest = true
-			inArray = true // for empty arrays/lists
+		if lastPos := len(line) - 1; lastPos >= 0 && line[lastPos] == '{' {
+			stack = append(stack, 'u')
 		}
-		//		{if (l) print l; l=$0}
 		if prevLine != "" {
 			fmt.Fprintln(out, prevLine)
 		}

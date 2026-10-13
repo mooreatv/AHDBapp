@@ -8,6 +8,20 @@ Already includes a pretty cool
 - [lua2json golang package](lua2json/) Golang version of the sed+awk script hack
 
 
+## Merging price history between your WoW accounts (WoW Forever)
+
+`ahdbmerge` gives every WoW account of a game install the AHDB price history all of them scanned (saved data is per
+account). With the game closed:
+
+```
+go install github.com/mooreatv/AHDBapp/cmd/ahdbmerge@latest
+ahdbmerge "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
+```
+
+Only the price history part of each `Account\*\SavedVariables\AuctionDB.lua` is rewritten; the previous file is kept
+as `AuctionDB.lua.bak`. `-n` shows what would be merged without writing. While playing, AHDB can also ask your
+other accounts' characters for prices directly (`/ahdb trust`).
+
 ## Getting started
 
 ahdb.go now reads lua and writes to a MySql DB directly (needed schema is in schema.sql)

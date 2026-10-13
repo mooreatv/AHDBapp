@@ -166,3 +166,17 @@ func TestMergeDailyLikeTheAddon(t *testing.T) {
 		t.Errorf("MergeDaily of the same = %v", got)
 	}
 }
+
+func TestWowExe(t *testing.T) {
+	for line, want := range map[string]bool{
+		`"WowB.exe","1","Console","1","1 K"`:       true,
+		`"Wow.exe","1","Console","1","1 K"`:        true,
+		`"WowClassic.exe","1","Console","1","1 K"`: true,
+		`"WowUp-CF.exe","1","Console","1","1 K"`:   false,
+		`"WowVoiceProxy.exe","1","Console","1",""`: false,
+	} {
+		if got := wowExe.MatchString(line); got != want {
+			t.Errorf("%s: %v, want %v", line, got, want)
+		}
+	}
+}

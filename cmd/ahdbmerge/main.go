@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -50,22 +51,26 @@ func findFiles(dir string) []string {
 	return nil
 }
 
-// wowRunning tells whether a WoW client process is running (Windows only).
-func wowRunning() bool {
+// WoW game clients: Wow.exe (retail), WowB.exe (beta, WoW Forever), WowT.exe (PTR), WowClassic.exe... but not
+// other programs starting with Wow (WowUp...).
+var wowExe = regexp.MustCompile(`(?i)^"(wow(classic)?[bt]?(-64)?\.exe)"`)
+
+// wowRunning returns the name of a running WoW client, "" if none (Windows only).
+func wowRunning() string {
 	if runtime.GOOS != "windows" {
-		return false
+		return ""
 	}
 	out, err := exec.Command("tasklist", "/FO", "CSV", "/NH").Output()
 	if err != nil {
 		log.Warnf("Can't list processes: %v", err)
-		return false
+		return ""
 	}
-	for _, line := range strings.Split(strings.ToLower(string(out)), "\n") {
-		if strings.HasPrefix(line, `"wow`) {
-			return true
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if m := wowExe.FindStringSubmatch(line); m != nil {
+			return m[1]
 		}
 	}
-	return false
+	return ""
 }
 
 func readFile(path string) (*savedFile, error) {
@@ -100,8 +105,9 @@ func main() {
 	if len(paths) == 0 {
 		log.Fatalf("No Account\\*\\SavedVariables\\AuctionDB.lua under %s", dir)
 	}
-	if !*dryRun && !*force && wowRunning() {
-		log.Fatalf("WoW is running: close the game first (it saves its own copy of the files on exit), or -force")
+	if exe := wowRunning(); exe != "" && !*dryRun && !*force {
+		log.Fatalf("WoW is running (%s): close the game first (it saves its own copy of the files on exit), or -force",
+			exe)
 	}
 	merged := Houses{}
 	var files []*savedFile

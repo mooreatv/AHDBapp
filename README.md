@@ -46,8 +46,9 @@ start it on another, prices are there.
 `ahdbmerge -sync HUB -once <WTF>` (game closed) syncs once and exits.
 
 The first time, each side asks to allow the other one, showing both keys so you can check they match (do it in a
-terminal on both). Allowed computers are remembered in `%AppData%\ahdbmerge\trusted.json` (remove one to forget it).
-`-port` changes the port (8642).
+terminal on both). Allowed computers are remembered in `%AppData%\ahdbmerge\trusted.json`
+(`~/Library/Application Support/ahdbmerge/trusted.json` on macOS; remove one to forget it). `-port` changes the port
+(8642).
 
 ## Getting started
 

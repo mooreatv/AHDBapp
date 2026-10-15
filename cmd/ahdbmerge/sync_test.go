@@ -24,26 +24,29 @@ func wtf(t *testing.T, text string) string {
 	return dir
 }
 
-// startServer answers one sync, like -serve, on a free port.
-func startServer(t *testing.T, id *identity, dir string) (string, chan error) {
+// startServer answers n syncs, like -serve, on a free port.
+func startServer(t *testing.T, id *identity, dir string, n int) (string, chan error) {
 	t.Helper()
 	ln, err := tls.Listen("tcp", "127.0.0.1:0", id.tlsConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan error, 1)
+	done := make(chan error, n)
+	s := newServer(id, dir, "", 0)
+	s.files()
 	go func() {
 		defer func() { _ = ln.Close() }()
-		conn, err := ln.Accept()
-		if err != nil {
+		for range n {
+			conn, err := ln.Accept()
+			if err != nil {
+				done <- err
+				return
+			}
+			err = answer(id, conn.(*tls.Conn), s)
+			_ = conn.Close()
+			s.files() // what the files goroutine does after a merge
 			done <- err
-			return
 		}
-		defer func() { _ = conn.Close() }()
-		s := newServer(id, dir, "", 0)
-		s.files()
-		done <- answer(id, conn.(*tls.Conn), s.merge)
-		s.files() // what the files goroutine does after a merge
 	}()
 	return ln.Addr().String(), done
 }
@@ -77,8 +80,8 @@ func TestSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr, done := startServer(t, server, dirB)
-	got, rem, err := syncWith(client, addr, local, "", 1234)
+	addr, done := startServer(t, server, dirB, 3)
+	got, rem, ver, err := syncWith(client, addr, local, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,26 +97,28 @@ func TestSync(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("synced = %v, want %v", got, want)
 	}
-	// both remember where the other's -serve answers
-	if a := client.trusted[server.key].Addr; a != addr {
-		t.Errorf("client has server at %q", a)
+	if ver != versionOf(want.Lua("\n")) {
+		t.Errorf("version %q", ver)
 	}
-	if a := server.trusted[client.key].Addr; a != "127.0.0.1:1234" {
-		t.Errorf("server has client at %q", a)
+	files, onServer, err := loadLocal(dirB)
+	if err != nil || len(files) != 1 {
+		t.Fatal(files, err)
 	}
-	if wowRunning() == "" {
-		files, onServer, err := loadLocal(dirB)
-		if err != nil || len(files) != 1 {
-			t.Fatal(files, err)
-		}
-		if onServer.Lua("\n") != want.Lua("\n") {
-			t.Error("server files not updated")
-		}
+	if onServer.Lua("\n") != want.Lua("\n") {
+		t.Error("server files not updated")
 	}
-	// with the wrong expected key: no sync
-	addr, done = startServer(t, server, dirB)
-	if _, _, err := syncWith(client, addr, local, client.key, 0); err == nil {
-		t.Error("synced with an unexpected key")
+	// nothing new on either side: only checked
+	got, _, ver2, err := syncWith(client, addr, local, ver)
+	if err != nil || got != nil || ver2 != ver {
+		t.Errorf("check: %v, %v, %q", got, err, ver2)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("server: %v", err)
+	}
+	// an old version: everything again
+	got, _, ver2, err = syncWith(client, addr, local, "old")
+	if err != nil || !reflect.DeepEqual(got, want) || ver2 != ver {
+		t.Errorf("sync with an old version: %v, %q", err, ver2)
 	}
 	<-done
 }
@@ -126,33 +131,14 @@ func TestSyncNotAllowed(t *testing.T) {
 	stdin = bufio.NewReader(strings.NewReader("n\n")) // the server says no
 	defer func() { stdin = bufio.NewReader(os.Stdin) }()
 	dirB := wtf(t, accountB)
-	addr, done := startServer(t, server, dirB)
-	_, _, err := syncWith(client, addr, Houses{}, "", 0)
+	addr, done := startServer(t, server, dirB, 1)
+	_, _, _, err := syncWith(client, addr, Houses{}, "")
 	if !errors.Is(err, errNotAllowed) {
 		t.Errorf("sync not refused: %v", err)
 	}
 	<-done
 	if len(server.trusted) != 0 {
 		t.Errorf("refused key trusted: %v", server.trusted)
-	}
-}
-
-func TestSetAddr(t *testing.T) {
-	id, _ := identityIn(t.TempDir())
-	id.trusted["k"] = &peer{Name: "laptop"}
-	id.setAddr("k", "192.168.1.5:8642", false)
-	id.setAddr("k", "192.168.1.6:8642", false) // new IP
-	if a := id.trusted["k"].Addr; a != "192.168.1.6:8642" {
-		t.Errorf("addr = %q", a)
-	}
-	id.setAddr("k", "laptop:8642", true)
-	id.setAddr("k", "192.168.1.7:8642", false) // the name given to -sync stays
-	if a := id.trusted["k"].Addr; a != "laptop:8642" {
-		t.Errorf("addr = %q", a)
-	}
-	id.setAddr("other", "x:1", true) // not trusted: nothing
-	if len(id.trusted) != 1 {
-		t.Error(id.trusted)
 	}
 }
 

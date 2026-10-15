@@ -1,13 +1,18 @@
 package main
 
-// ahdbmerge -serve: keeps the merged price history of this computer and the others it syncs with, answers their syncs,
-// and syncs with them (the -sync one and every trusted one whose -serve answered before) when there is something new:
-// at start, when the AuctionDB.lua files change (WoW saves them at logout, /reload and exit) and after getting new
-// data from one of them (so with a hub, what one computer sends reaches the others). The files here are written
-// whenever WoW isn't running (it would overwrite them on exit), at the latest when it exits.
+// Keeping running: the merged price history of this computer and the others is kept in memory.
+// - With -serve (the hub): answers the other computers' syncs; never connects to them, they come when they have
+//   something new or to check if it has.
+// - With -sync HUB: syncs with the hub when there is something new here, and checks every pollEvery if the hub has
+//   something new (a small exchange when it doesn't).
+// Something new here: at start and when the AuctionDB.lua files change (WoW saves them at logout, /reload and exit).
+// The files here are written whenever WoW isn't running (it would overwrite them on exit), at the latest when it
+// exits.
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -18,33 +23,46 @@ import (
 	"fortio.org/log"
 )
 
-const watchEvery = 5 * time.Second
+const (
+	watchEvery = 5 * time.Second
+	pollEvery  = 15 * time.Second
+)
 
 type server struct {
-	id    *identity
-	dir   string
-	peer  string // -sync address
-	port  int
-	mu    sync.Mutex
-	state Houses // never changed once set, replaced instead
+	id   *identity
+	dir  string
+	hub  string // -sync address
+	port int
+	mu   sync.Mutex
+	// never changed once set, replaced instead
+	state Houses
 	lua   string // of state, to see changes
+	ver   string // short hash of lua
 	kick  chan struct{}
 	write chan struct{}
 	// only used by the files goroutine
 	mtimes map[string]time.Time
 	wow    string // running WoW client at the last check
-	// only used by the peers goroutine
-	refused map[string]bool // addresses refused, not asked again
+	// only used by the hub goroutine
+	hubVer  string // hub's version at the last sync
+	synced  string // own version after the last sync
+	down    bool   // last sync with the hub failed
+	refused bool
 }
 
-func newServer(id *identity, dir, peer string, port int) *server {
+func versionOf(lua string) string {
+	sum := sha256.Sum256([]byte(lua))
+	return hex.EncodeToString(sum[:8])
+}
+
+func newServer(id *identity, dir, hub string, port int) *server {
+	empty := Houses{}.Lua("\n")
 	s := &server{
-		id: id, dir: dir, port: port, state: Houses{}, lua: Houses{}.Lua("\n"),
-		kick: make(chan struct{}, 1), write: make(chan struct{}, 1),
-		mtimes: map[string]time.Time{}, refused: map[string]bool{},
+		id: id, dir: dir, port: port, state: Houses{}, lua: empty, ver: versionOf(empty),
+		kick: make(chan struct{}, 1), write: make(chan struct{}, 1), mtimes: map[string]time.Time{},
 	}
-	if peer != "" {
-		s.peer = withPort(peer)
+	if hub != "" {
+		s.hub = withPort(hub)
 	}
 	return s
 }
@@ -62,14 +80,19 @@ func (s *server) absorb(hs Houses) string {
 		return ""
 	}
 	added := s.state.Added(next)
-	s.state, s.lua = next, l
+	s.state, s.lua, s.ver = next, l, versionOf(l)
 	return added
 }
 
-func (s *server) snapshot() Houses {
+func (s *server) snapshot() (Houses, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.state
+	return s.state, s.ver
+}
+
+func (s *server) version() string {
+	_, v := s.snapshot()
+	return v
 }
 
 func signal(c chan struct{}) {
@@ -95,7 +118,7 @@ func (s *server) filesChanged() bool {
 	return changed
 }
 
-// files reads the files into the state, syncs with the others if they brought something new, and writes the files
+// files reads the files into the state, syncs with the hub if they brought something new, and writes the files
 // with the state when WoW isn't running.
 func (s *server) files() {
 	files, hs, err := loadLocal(s.dir)
@@ -108,7 +131,8 @@ func (s *server) files() {
 		signal(s.kick)
 	}
 	if s.wow == "" && !*dryRun {
-		writeLocal(files, s.snapshot(), false)
+		state, _ := s.snapshot()
+		writeLocal(files, state, false)
 	}
 	s.filesChanged() // not our own writes
 }
@@ -131,83 +155,62 @@ func (s *server) watchFiles() {
 	}
 }
 
-var (
-	errNotAllowed = errors.New("not allowed")
-	errSelf       = errors.New("that's this computer")
-)
-
-// syncOne syncs with the computer at addr; when it can't be reached at an address it gave (IP addresses change,
-// IPv6 ones especially), tries its name.
-func (s *server) syncOne(addr, expect string, p *peer) (Houses, remote, error) {
-	hs, rem, err := syncWith(s.id, addr, s.snapshot(), expect, s.port)
-	var op *net.OpError
-	if err == nil || p == nil || !errors.As(err, &op) || op.Op != "dial" {
-		return hs, rem, err
+// syncHub syncs with the hub: everything if something is new here, else only checks if the hub has something new.
+func (s *server) syncHub() {
+	state, ver := s.snapshot()
+	have := ""
+	if ver == s.synced {
+		have = s.hubVer
 	}
-	_, port, _ := net.SplitHostPort(addr)
-	byName := net.JoinHostPort(p.Name, port)
-	if byName == addr {
-		return hs, rem, err
-	}
-	log.Infof("Can't reach %s at %s (%v), trying %s", p.Name, addr, err, byName)
-	return syncWith(s.id, byName, s.snapshot(), expect, s.port)
-}
-
-// syncPeers syncs with every other computer, again if one brought something new (for the ones before it).
-func (s *server) syncPeers() {
-	for range 3 {
-		news := false
-		done := map[string]bool{}
-		known := s.id.servers()
-		keyOf := map[string]string{}
-		var targets []string
-		if s.peer != "" {
-			targets = append(targets, s.peer)
-		}
-		for fp, p := range known {
-			keyOf[p.Addr] = fp
-			if p.Addr != s.peer {
-				targets = append(targets, p.Addr)
-			}
-		}
-		for _, addr := range targets {
-			expect := keyOf[addr]
-			if s.refused[addr] || (expect != "" && done[expect]) {
-				continue
-			}
-			hs, rem, err := s.syncOne(addr, expect, known[expect])
-			if rem.key != "" {
-				done[rem.key] = true
-			}
-			if err != nil {
-				log.Warnf("Sync with %s: %v", addr, err)
-				if errors.Is(err, errNotAllowed) || errors.Is(err, errSelf) {
-					s.refused[addr] = true
-				}
-				continue
-			}
-			if added := s.absorb(hs); added != "" {
-				log.Infof("Synced with %s (%s), new here: %s", rem.name, addr, added)
-				news = true
-			} else {
-				log.Infof("Synced with %s (%s): nothing new here", rem.name, addr)
-			}
-		}
-		if !news {
+	hs, rem, hubVer, err := syncWith(s.id, s.hub, state, have)
+	if err != nil {
+		if errors.Is(err, errNotAllowed) || errors.Is(err, errSelf) {
+			log.Errf("Sync with %s: %v, stopped syncing", s.hub, err)
+			s.refused = true
 			return
 		}
-		signal(s.write)
+		if !s.down {
+			log.Warnf("Can't sync with %s: %v (will keep trying)", s.hub, err)
+			s.down = true
+		}
+		return
+	}
+	if s.down {
+		log.Infof("Syncing with %s (%s) again", rem.name, s.hub)
+		s.down = false
+	}
+	s.hubVer = hubVer
+	if hs != nil {
+		if added := s.absorb(hs); added != "" {
+			log.Infof("Synced with %s, new here: %s", rem.name, added)
+			signal(s.write)
+		} else {
+			log.Infof("Synced with %s: sent what's new here", rem.name)
+		}
+	}
+	_, s.synced = s.snapshot()
+}
+
+func (s *server) syncLoop() {
+	tick := time.NewTicker(pollEvery)
+	for !s.refused {
+		s.syncHub()
+		select {
+		case <-s.kick:
+		case <-tick.C:
+		}
 	}
 }
 
 // merge answers a sync from another computer.
-func (s *server) merge(rem remote, hs Houses, dry bool) (Houses, error) {
+func (s *server) merge(rem remote, hs Houses, dry bool) (Houses, string) {
 	if dry {
+		state, ver := s.snapshot()
 		res := Houses{}
-		res.Merge(s.snapshot())
+		res.Merge(state)
 		res.Merge(hs)
 		res.Compact(now())
-		return res, nil
+		return res, ver
 	}
 	if added := s.absorb(hs); added != "" {
 		log.Infof("Sync from %s, new here: %s", rem.name, added)
@@ -216,34 +219,41 @@ func (s *server) merge(rem remote, hs Houses, dry bool) (Houses, error) {
 	} else {
 		log.Infof("Sync from %s: nothing new here", rem.name)
 	}
-	return s.snapshot(), nil
+	return s.snapshot()
 }
 
-func (s *server) run() {
-	ln, err := tls.Listen("tcp", fmt.Sprintf(":%d", s.port), s.id.tlsConfig())
-	if err != nil {
-		log.Fatalf("Listening on port %d: %v", s.port, err)
+func (s *server) run(listen bool) {
+	var ln net.Listener
+	if listen {
+		var err error
+		ln, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.port), s.id.tlsConfig())
+		if err != nil {
+			log.Fatalf("Listening on port %d: %v", s.port, err)
+		}
+		log.Infof("%s, key %s: waiting for syncs on port %d", hostname(), short(s.id.key), s.port)
+	} else {
+		log.Infof("%s, key %s: syncing with %s", hostname(), short(s.id.key), s.hub)
 	}
-	log.Infof("%s, key %s: syncing on port %d", hostname(), short(s.id.key), s.port)
 	s.wow = wowRunning()
 	if s.wow != "" {
 		log.Infof("WoW is running (%s): the files here get updated when it exits", s.wow)
 	}
 	s.files()
-	signal(s.kick)
-	go func() {
-		for range s.kick {
-			s.syncPeers()
-		}
-	}()
 	go s.watchFiles()
+	if s.hub != "" {
+		if !listen {
+			s.syncLoop()
+			return
+		}
+		go s.syncLoop()
+	}
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			log.Errf("Accept: %v", err)
 			continue
 		}
-		if err := answer(s.id, conn.(*tls.Conn), s.merge); err != nil {
+		if err := answer(s.id, conn.(*tls.Conn), s); err != nil {
 			log.Warnf("Sync from %s: %v", conn.RemoteAddr(), err)
 		}
 		_ = conn.Close()

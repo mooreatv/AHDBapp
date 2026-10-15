@@ -12,8 +12,8 @@
 // Every Account\*\SavedVariables\AuctionDB.lua gets the merged price history (only that part of the file is
 // rewritten, the previous file is kept as AuctionDB.lua.bak).
 //
-// Between computers: keep "ahdbmerge -serve <WTF>" running on one (the hub), and "ahdbmerge -serve -sync <hub> <WTF>"
-// on the others; or, game closed, "ahdbmerge -sync <hub> <WTF>" syncs once. Each side confirms the other the first
+// Between computers: keep "ahdbmerge -serve <WTF>" running on one (the hub), and "ahdbmerge -sync <hub> <WTF>" on the
+// others; or, game closed, "ahdbmerge -sync <hub> -once <WTF>" syncs once. Each side confirms the other the first
 // time.
 package main
 
@@ -39,10 +39,11 @@ const savedName = "AuctionDBForeverSaved"
 var (
 	force     = flag.Bool("force", false, "merge even when WoW seems to be running (it would overwrite the files on exit)")
 	dryRun    = flag.Bool("n", false, "only show what would be merged, don't write anything")
-	serveFlag = flag.Bool("serve", false, "keep running: sync with your other computers whenever there is something new")
-	syncAddr  = flag.String("sync", "", "also merge with the `computer` (name or address) running ahdbmerge -serve: "+
-		"once, or with -serve whenever there is something new")
-	port      = flag.Int("port", defaultPort, "network port for -serve and -sync")
+	serveFlag = flag.Bool("serve", false, "keep running, as the hub your other computers -sync with")
+	syncAddr  = flag.String("sync", "", "keep running, in sync with the hub (`computer` name or address running "+
+		"ahdbmerge -serve)")
+	once = flag.Bool("once", false, "with -sync: sync once (game closed) and exit")
+	port = flag.Int("port", defaultPort, "network port for -serve and -sync")
 	// logs the price history counts (not in -serve)
 	logCounts = true
 	now       = func() int64 { return time.Now().Unix() }
@@ -198,17 +199,20 @@ func main() {
 	cli.MinArgs = 1
 	cli.Main()
 	dir := flag.Arg(0)
+	if *once && (*syncAddr == "" || *serveFlag) {
+		log.Fatalf("-once goes with -sync, without -serve")
+	}
 	if *serveFlag || *syncAddr != "" {
 		id, err := loadIdentity()
 		if err != nil {
 			log.Fatalf("Key for syncing: %v", err)
 		}
-		if *serveFlag {
+		if !*once {
 			if len(findFiles(dir)) == 0 {
 				log.Fatalf("No Account\\*\\SavedVariables\\AuctionDB.lua under %s", dir)
 			}
 			logCounts = false
-			newServer(id, dir, *syncAddr, *port).run()
+			newServer(id, dir, *syncAddr, *port).run(*serveFlag)
 			return
 		}
 		checkWow()
@@ -216,7 +220,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("%v", err)
 		}
-		other, rem, err := syncWith(id, withPort(*syncAddr), merged, "", 0)
+		other, rem, _, err := syncWith(id, withPort(*syncAddr), merged, "")
 		if err != nil {
 			log.Fatalf("Sync with %s: %v", *syncAddr, err)
 		}

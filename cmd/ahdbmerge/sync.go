@@ -1,11 +1,11 @@
 package main
 
 // Syncing with the ahdbmerge -serve of another computer. TLS with a key per computer (made on first use, kept in the
-// user config folder); each side confirms the other's key the first time (like ssh), then remembers it (with where
-// its -serve answers, if it does).
+// user config folder); each side confirms the other's key the first time (like ssh), then remembers it.
 //
-// Messages are gzipped JSON, in that order: server name, client name and -serve port (server confirms), client price
-// history, merged price history back.
+// Messages are gzipped JSON, in that order: server name, client name and the server's history version it has if
+// nothing is new on its side (server confirms, or says it's still that version: done), client price history, merged
+// price history and its version back.
 
 import (
 	"bufio"
@@ -44,11 +44,13 @@ const (
 )
 
 type message struct {
-	Name   string `json:",omitempty"` // computer name
-	DryRun bool   `json:",omitempty"`
-	Port   int    `json:",omitempty"` // where the sender's -serve answers
-	Error  string `json:",omitempty"`
-	Houses Houses `json:",omitempty"`
+	Name     string `json:",omitempty"` // computer name
+	DryRun   bool   `json:",omitempty"`
+	Have     string `json:",omitempty"` // client: version of the server's history it has, when nothing new on its side
+	UpToDate bool   `json:",omitempty"` // server: still that version, nothing to sync
+	Version  string `json:",omitempty"` // server: version of its history
+	Error    string `json:",omitempty"`
+	Houses   Houses `json:",omitempty"`
 }
 
 func send(w io.Writer, m *message) error {
@@ -97,7 +99,6 @@ func (hs Houses) validate() error {
 // peer is a trusted computer.
 type peer struct {
 	Name string
-	Addr string `json:",omitempty"` // where its ahdbmerge -serve answers, if it does
 }
 
 type identity struct {
@@ -234,36 +235,6 @@ func (id *identity) save() {
 	}
 }
 
-// setAddr remembers where the -serve of a trusted computer answers. Without given, only replaces an IP address (the
-// computer may have a new one), not a name given to -sync.
-func (id *identity) setAddr(fp, addr string, given bool) {
-	id.mu.Lock()
-	defer id.mu.Unlock()
-	p := id.trusted[fp]
-	if p == nil || p.Addr == addr {
-		return
-	}
-	if host, _, err := net.SplitHostPort(p.Addr); !given && err == nil && net.ParseIP(host) == nil {
-		return
-	}
-	p.Addr = addr
-	id.save()
-}
-
-// servers returns (a copy of) the trusted computers with a -serve address, by key.
-func (id *identity) servers() map[string]*peer {
-	id.mu.Lock()
-	defer id.mu.Unlock()
-	res := map[string]*peer{}
-	for fp, p := range id.trusted {
-		if p.Addr != "" {
-			c := *p
-			res[fp] = &c
-		}
-	}
-	return res
-}
-
 func (id *identity) tlsConfig() *tls.Config {
 	return &tls.Config{
 		Certificates: []tls.Certificate{id.cert},
@@ -302,63 +273,77 @@ type remote struct {
 	key, name string
 }
 
-// syncWith sends the local price history to the ahdbmerge -serve at addr and returns the merged one. With expect,
-// the other side must have that key (no question asked); servePort is where this side's -serve answers, if it does.
-func syncWith(id *identity, addr string, local Houses, expect string, servePort int) (Houses, remote, error) {
+var (
+	errNotAllowed = errors.New("not allowed")
+	errSelf       = errors.New("that's this computer")
+)
+
+// syncWith sends the local price history to the ahdbmerge -serve at addr and returns the merged one, with the
+// server's version of it. With have (the server's version from the last sync, when nothing is new here), returns no
+// history if the server still has that version.
+func syncWith(id *identity, addr string, local Houses, have string) (Houses, remote, string, error) {
 	var rem remote
 	d := &net.Dialer{Timeout: 10 * time.Second}
 	conn, err := tls.DialWithDialer(d, "tcp", addr, id.tlsConfig())
 	if err != nil {
-		return nil, rem, err
+		return nil, rem, "", err
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(syncTimeout))
 	if rem.key, err = peerKey(conn); err != nil {
-		return nil, rem, err
+		return nil, rem, "", err
 	}
 	r := bufio.NewReader(conn)
 	m, err := receive(r, maxHelloSize)
 	if err != nil {
-		return nil, rem, err
+		return nil, rem, "", err
 	}
 	rem.name = m.Name
 	switch {
 	case rem.key == id.key:
-		return nil, rem, errSelf
-	case expect != "" && rem.key != expect:
-		return nil, rem, fmt.Errorf("%s has another key (%s) than before, not syncing", m.Name, short(rem.key))
+		return nil, rem, "", errSelf
 	case !id.allow(rem.key, fmt.Sprintf("%s at %s", m.Name, addr), m.Name):
-		return nil, rem, errNotAllowed
+		return nil, rem, "", errNotAllowed
 	}
-	if err := send(conn, &message{Name: hostname(), DryRun: *dryRun, Port: servePort}); err != nil {
-		return nil, rem, err
+	if err := send(conn, &message{Name: hostname(), DryRun: *dryRun, Have: have}); err != nil {
+		return nil, rem, "", err
 	}
 	waiting := time.AfterFunc(2*time.Second, func() {
 		log.Infof("Waiting for %s to allow this computer (asked there the first time)...", m.Name)
 	})
 	m, err = receive(r, maxHelloSize)
 	waiting.Stop()
-	if err != nil {
-		return nil, rem, err
+	switch {
+	case err != nil:
+		return nil, rem, "", err
+	case m.Error != "":
+		return nil, rem, "", fmt.Errorf("%w on %s", errNotAllowed, rem.name)
+	case m.UpToDate:
+		return nil, rem, m.Version, nil
 	}
-	if m.Error != "" {
-		return nil, rem, fmt.Errorf("%w on %s", errNotAllowed, rem.name)
-	}
-	id.setAddr(rem.key, addr, true)
 	if err := send(conn, &message{Houses: local}); err != nil {
-		return nil, rem, err
+		return nil, rem, "", err
 	}
 	if m, err = receive(r, maxDataSize); err != nil {
-		return nil, rem, err
+		return nil, rem, "", err
 	}
 	if m.Error != "" {
-		return nil, rem, errors.New(m.Error)
+		return nil, rem, "", errors.New(m.Error)
 	}
-	return m.Houses, rem, m.Houses.validate()
+	if m.Houses == nil {
+		m.Houses = Houses{}
+	}
+	return m.Houses, rem, m.Version, m.Houses.validate()
 }
 
-// answer is the server side of syncWith: merge gets what the other side sent and returns what to send back.
-func answer(id *identity, conn *tls.Conn, merge func(remote, Houses, bool) (Houses, error)) error {
+// answerer is the server side of the history: its version, and merging what another computer sends.
+type answerer interface {
+	version() string
+	merge(rem remote, hs Houses, dry bool) (Houses, string)
+}
+
+// answer is the server side of syncWith.
+func answer(id *identity, conn *tls.Conn, srv answerer) error {
 	_ = conn.SetDeadline(time.Now().Add(syncTimeout))
 	key, err := peerKey(conn)
 	if err != nil {
@@ -378,8 +363,8 @@ func answer(id *identity, conn *tls.Conn, merge func(remote, Houses, bool) (Hous
 		_ = send(conn, &message{Error: "not allowed"})
 		return errNotAllowed
 	}
-	if m.Port > 0 {
-		id.setAddr(key, net.JoinHostPort(ip, strconv.Itoa(m.Port)), false)
+	if v := srv.version(); m.Have != "" && m.Have == v {
+		return send(conn, &message{UpToDate: true, Version: v})
 	}
 	if err := send(conn, &message{}); err != nil {
 		return err
@@ -391,10 +376,6 @@ func answer(id *identity, conn *tls.Conn, merge func(remote, Houses, bool) (Hous
 		_ = send(conn, &message{Error: err.Error()})
 		return err
 	}
-	merged, err := merge(rem, m.Houses, dry)
-	if err != nil {
-		_ = send(conn, &message{Error: hostname() + ": " + err.Error()})
-		return err
-	}
-	return send(conn, &message{Houses: merged})
+	merged, v := srv.merge(rem, m.Houses, dry)
+	return send(conn, &message{Houses: merged, Version: v})
 }

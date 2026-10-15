@@ -24,8 +24,8 @@ other accounts' characters for prices directly (`/ahdb trust`).
 
 ### Between your computers
 
-Keep `ahdbmerge -serve` running on each computer (allow it through the Windows firewall when asked). On one of them
-(the hub):
+Keep `ahdbmerge` running on each computer. On one of them, the hub (allow it through the Windows firewall when
+asked):
 
 ```
 ahdbmerge -serve "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
@@ -34,20 +34,20 @@ ahdbmerge -serve "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
 and on the other(s), with the hub's name or IP address:
 
 ```
-ahdbmerge -serve -sync HUB "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
+ahdbmerge -sync HUB "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
 ```
 
-They sync whenever there is something new: at start, and when WoW saves its files (logout, `/reload`, exit). Each
-computer's files get the price history of all the accounts of all the computers, while its game is closed (WoW would
-overwrite them on exit), else when it exits. So: close the game on one computer, start it on the other, prices are
-there.
+The others send the hub what's new as soon as WoW saves their files (logout, `/reload`, exit), and check every 15
+seconds whether the hub got something new (from its own game or another computer). The hub never connects to them, so
+they can be off or asleep. Each computer's files get the price history of all the accounts of all the computers,
+while its game is closed (WoW would overwrite them on exit), else when it exits. So: close the game on one computer,
+start it on another, prices are there.
 
-With more than 2 computers, what one sends reaches the others through the hub. Without `-serve`, `ahdbmerge -sync HUB
-<WTF>` (game closed) syncs once.
+`ahdbmerge -sync HUB -once <WTF>` (game closed) syncs once and exits.
 
 The first time, each side asks to allow the other one, showing both keys so you can check they match (do it in a
-terminal on both). Allowed computers are remembered, with where they answer, in `%AppData%\ahdbmerge\trusted.json`
-(remove one to forget it). `-port` changes the port (8642).
+terminal on both). Allowed computers are remembered in `%AppData%\ahdbmerge\trusted.json` (remove one to forget it).
+`-port` changes the port (8642).
 
 ## Getting started
 

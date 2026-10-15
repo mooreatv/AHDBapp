@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -135,6 +136,23 @@ var (
 	errSelf       = errors.New("that's this computer")
 )
 
+// syncOne syncs with the computer at addr; when it can't be reached at an address it gave (IP addresses change,
+// IPv6 ones especially), tries its name.
+func (s *server) syncOne(addr, expect string, p *peer) (Houses, remote, error) {
+	hs, rem, err := syncWith(s.id, addr, s.snapshot(), expect, s.port)
+	var op *net.OpError
+	if err == nil || p == nil || !errors.As(err, &op) || op.Op != "dial" {
+		return hs, rem, err
+	}
+	_, port, _ := net.SplitHostPort(addr)
+	byName := net.JoinHostPort(p.Name, port)
+	if byName == addr {
+		return hs, rem, err
+	}
+	log.Infof("Can't reach %s at %s (%v), trying %s", p.Name, addr, err, byName)
+	return syncWith(s.id, byName, s.snapshot(), expect, s.port)
+}
+
 // syncPeers syncs with every other computer, again if one brought something new (for the ones before it).
 func (s *server) syncPeers() {
 	for range 3 {
@@ -146,16 +164,18 @@ func (s *server) syncPeers() {
 		if s.peer != "" {
 			targets = append(targets, s.peer)
 		}
-		for fp, a := range known {
-			keyOf[a] = fp
-			targets = append(targets, a)
+		for fp, p := range known {
+			keyOf[p.Addr] = fp
+			if p.Addr != s.peer {
+				targets = append(targets, p.Addr)
+			}
 		}
 		for _, addr := range targets {
 			expect := keyOf[addr]
 			if s.refused[addr] || (expect != "" && done[expect]) {
 				continue
 			}
-			hs, rem, err := syncWith(s.id, addr, s.snapshot(), expect, s.port)
+			hs, rem, err := s.syncOne(addr, expect, known[expect])
 			if rem.key != "" {
 				done[rem.key] = true
 			}

@@ -250,14 +250,15 @@ func (id *identity) setAddr(fp, addr string, given bool) {
 	id.save()
 }
 
-// servers returns the address of the -serve of each trusted computer that has one, by key.
-func (id *identity) servers() map[string]string {
+// servers returns (a copy of) the trusted computers with a -serve address, by key.
+func (id *identity) servers() map[string]*peer {
 	id.mu.Lock()
 	defer id.mu.Unlock()
-	res := map[string]string{}
+	res := map[string]*peer{}
 	for fp, p := range id.trusted {
 		if p.Addr != "" {
-			res[fp] = p.Addr
+			c := *p
+			res[fp] = &c
 		}
 	}
 	return res

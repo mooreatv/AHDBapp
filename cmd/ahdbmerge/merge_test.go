@@ -152,18 +152,31 @@ func TestMergeAndWrite(t *testing.T) {
 	}
 }
 
-// Same case as the addon's (History.lua) merge, run in a Lua harness: same day from 2 sources.
+// Same rules as the addon's (History.lua) merge: same day from 2 sources.
 func TestMergeDailyLikeTheAddon(t *testing.T) {
 	now := int64(1000*day + 36000)
 	got := MergeDaily([]Point{{now - 10*day, 50, 60, 1, 1}, {now - 5*day, 90, 100, 6, 3}},
-		[]Point{{now - 5*day + 60, 70, 110, 10, 5}})
-	want := []Point{{now - 10*day, 50, 60, 1, 1}, {now - 5*day + 60, 70, 110, 9, 8}}
+		[]Point{{now - 5*day + 60, 95, 110, 10, 5}})
+	want := []Point{{now - 10*day, 50, 60, 1, 1}, {now - 5*day + 60, 90, 110, 9, 8}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("MergeDaily = %v, want %v", got, want)
 	}
 	// same last scan: same data, kept once
 	if got := MergeDaily(want, want); !reflect.DeepEqual(got, want) {
 		t.Errorf("MergeDaily of the same = %v", got)
+	}
+	// an older copy of a combined day (e.g. a file written before the last sync) doesn't add its scans again
+	old := []Point{{now - 5*day, 90, 100, 6, 3}}
+	if got := MergeDaily(want, old); !reflect.DeepEqual(got, want) {
+		t.Errorf("MergeDaily with an older copy = %v", got)
+	}
+	if got := MergeDaily(old, want); !reflect.DeepEqual(got, want) {
+		t.Errorf("MergeDaily of an older copy = %v", got)
+	}
+	// later with more scans but a higher min: not the same scans, combined
+	other := []Point{{now - 5*day + 120, 95, 100, 6, 4}}
+	if got := MergeDaily(old, other); !reflect.DeepEqual(got, []Point{{now - 5*day + 120, 90, 100, 6, 7}}) {
+		t.Errorf("MergeDaily of different scans = %v", got)
 	}
 }
 
@@ -207,6 +220,15 @@ func TestWowExe(t *testing.T) {
 		`"WowVoiceProxy.exe","1","Console","1",""`: false,
 	} {
 		if got := wowExe.MatchString(line); got != want {
+			t.Errorf("%s: %v, want %v", line, got, want)
+		}
+	}
+	for line, want := range map[string]bool{
+		"/Applications/World of Warcraft/_classic_era_/World of Warcraft Classic.app/Contents/MacOS/World of Warcraft Classic": true,
+		"/Applications/World of Warcraft/_retail_/World of Warcraft.app/Contents/MacOS/World of Warcraft":                     true,
+		"/Applications/Battle.net.app/Contents/MacOS/Battle.net":                                                              false,
+	} {
+		if got := wowMac.MatchString(line); got != want {
 			t.Errorf("%s: %v, want %v", line, got, want)
 		}
 	}

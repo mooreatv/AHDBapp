@@ -5,7 +5,8 @@ package main
 // - daily[itemID] = one entry per older day "ts,min,median,qty,scans ..." oldest first (ts of the day's last scan)
 // - scans = list of {ts, entries, items}
 // Merged like the addon does with prices from trusted characters: same scan (ts) kept once, same day combined (lowest
-// min, median of the entry with more scans, scan weighted quantity, scans added), then compacted like the addon does
+// min, median of the entry with more scans, scan weighted quantity, scans added; but an entry that is the other one
+// plus later scans replaces it, not to count scans twice), then compacted like the addon does
 // (scans of days before the last 48h rolled into daily entries, those older than 180 days dropped).
 
 import (
@@ -167,7 +168,15 @@ func lowest(a, b int64) int64 {
 	return a
 }
 
-// MergeDaily merges daily entries by day, same rules as the addon's mergeDaily (History.lua).
+// includes returns whether the daily entry q can be p combined with later scans: later last scan, more scans, min as
+// low. Then it's taken as such (an older copy of the same day merged again, e.g. from a file written before the last
+// sync), instead of counting p's scans twice.
+func includes(q, p Point) bool {
+	return q[0] > p[0] && q[4] > p[4] && lowest(q[1], p[1]) == q[1]
+}
+
+// MergeDaily merges daily entries by day, same rules as the addon's mergeDaily (History.lua), except an entry that
+// includes the other one (see includes) is kept as is.
 func MergeDaily(a, b []Point) []Point {
 	byDay := map[int64]Point{}
 	var days []int64
@@ -183,8 +192,12 @@ func MergeDaily(a, b []Point) []Point {
 				days = append(days, d)
 				continue
 			}
-			if q[0] == p[0] {
-				continue // same last scan: same data
+			switch {
+			case q[0] == p[0] || includes(q, p): // same last scan: same data
+				continue
+			case includes(p, q):
+				byDay[d] = p
+				continue
 			}
 			n := q[4] + p[4]
 			med := p[2]

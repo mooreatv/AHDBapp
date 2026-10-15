@@ -70,18 +70,29 @@ func findFiles(dir string) []string {
 // other programs starting with Wow (WowUp...).
 var wowExe = regexp.MustCompile(`(?i)^"(wow(classic)?[bt]?(-64)?\.exe)"`)
 
-// wowRunning returns the name of a running WoW client, "" if none (Windows only).
+// On macOS (ps -axo comm= paths): .../MacOS/World of Warcraft, World of Warcraft Classic...
+var wowMac = regexp.MustCompile(`/(World of Warcraft[^/]*)$`)
+
+// wowRunning returns the name of a running WoW client, "" if none (Windows and macOS).
 func wowRunning() string {
-	if runtime.GOOS != "windows" {
+	var out []byte
+	var err error
+	re := wowExe
+	switch runtime.GOOS {
+	case "windows":
+		out, err = exec.Command("tasklist", "/FO", "CSV", "/NH").Output()
+	case "darwin":
+		out, err = exec.Command("ps", "-axo", "comm=").Output()
+		re = wowMac
+	default:
 		return ""
 	}
-	out, err := exec.Command("tasklist", "/FO", "CSV", "/NH").Output()
 	if err != nil {
 		log.Warnf("Can't list processes: %v", err)
 		return ""
 	}
 	for line := range strings.SplitSeq(string(out), "\n") {
-		if m := wowExe.FindStringSubmatch(line); m != nil {
+		if m := re.FindStringSubmatch(strings.TrimRight(line, "\r")); m != nil {
 			return m[1]
 		}
 	}
@@ -178,7 +189,7 @@ func writeLocal(files []*savedFile, merged Houses, dry bool) {
 			log.Errf("Writing %s: %v", f.path, err)
 			continue
 		}
-		log.Infof("%s: updated: %s (previous one in %s.bak)", f.path, added, filepath.Base(f.path))
+		log.Infof("%s: updated: %s (backup of the previous one: %s.bak)", f.path, added, filepath.Base(f.path))
 	}
 }
 

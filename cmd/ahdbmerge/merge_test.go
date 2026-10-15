@@ -167,6 +167,37 @@ func TestMergeDailyLikeTheAddon(t *testing.T) {
 	}
 }
 
+// Same as the addon's CompactHistory: scans before the last 48h rolled into daily, daily over 180 days dropped.
+func TestCompact(t *testing.T) {
+	now := int64(1000*day + 36000)
+	d3 := now - 3*day
+	h := newHouse()
+	h.Items[1] = []Point{{d3, 100, 120, 4}, {d3 + 60, 0, 0, 0}, {d3 + 120, 90, 130, 5}, {now - 60, 80, 110, 2}}
+	h.Items[2] = []Point{{d3, 10, 20, 3}}
+	h.Daily[1] = []Point{{now - 200*day, 1, 2, 3, 1}, {now - 5*day, 50, 60, 1, 1}}
+	h.Daily[2] = []Point{{now - 200*day, 1, 2, 3, 1}}
+	h.Compact(now)
+	if want := []Point{{now - 60, 80, 110, 2}}; !reflect.DeepEqual(h.Items[1], want) {
+		t.Errorf("recent = %v", h.Items[1])
+	}
+	// lowest non 0 min, lower median of the non 0 medians, rounded average quantity (9/3), 3 scans
+	if want := []Point{{now - 5*day, 50, 60, 1, 1}, {d3 + 120, 90, 120, 3, 3}}; !reflect.DeepEqual(h.Daily[1], want) {
+		t.Errorf("daily = %v", h.Daily[1])
+	}
+	if _, ok := h.Items[2]; ok {
+		t.Errorf("item 2 recent = %v", h.Items[2])
+	}
+	if want := []Point{{d3, 10, 20, 3, 1}}; !reflect.DeepEqual(h.Daily[2], want) {
+		t.Errorf("item 2 daily = %v", h.Daily[2])
+	}
+	hs := Houses{"Horde": h}
+	before := hs.Lua("\n")
+	hs.Compact(now)
+	if hs.Lua("\n") != before {
+		t.Error("compacting again changed it")
+	}
+}
+
 func TestWowExe(t *testing.T) {
 	for line, want := range map[string]bool{
 		`"WowB.exe","1","Console","1","1 K"`:       true,

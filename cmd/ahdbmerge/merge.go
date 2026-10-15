@@ -5,20 +5,23 @@ package main
 // - daily[itemID] = one entry per older day "ts,min,median,qty,scans ..." oldest first (ts of the day's last scan)
 // - scans = list of {ts, entries, items}
 // Merged like the addon does with prices from trusted characters: same scan (ts) kept once, same day combined (lowest
-// min, median of the entry with more scans, scan weighted quantity, scans added). Recent scans of days other files
-// already rolled up stay recent: the addon rolls them into the daily ones at its next scan.
+// min, median of the entry with more scans, scan weighted quantity, scans added), then compacted like the addon does
+// (scans of days before the last 48h rolled into daily entries, those older than 180 days dropped).
 
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 )
 
 const (
-	day      = 86400
-	maxScans = 100
+	day          = 86400
+	maxScans     = 100
+	recentWindow = 48 * 3600 // RECENT and DAILY_DAYS of History.lua
+	dailyDays    = 180
 )
 
 // Point is a recent scan {ts, min, median, qty} or a daily entry {ts, min, median, qty, scans}.
@@ -203,6 +206,85 @@ func MergeDaily(a, b []Point) []Point {
 	return out
 }
 
+// median is the lower median of the non-zero values, 0 if none (the addon's ADB:Median).
+func median(values []int64) int64 {
+	var v []int64
+	for _, x := range values {
+		if x > 0 {
+			v = append(v, x)
+		}
+	}
+	if len(v) == 0 {
+		return 0
+	}
+	slices.Sort(v)
+	return v[(len(v)+1)/2-1]
+}
+
+// rollup makes one {ts, min, median, qty, scans} per day of the scan points (sorted), like the addon's rollup.
+func rollup(points []Point) []Point {
+	var days []Point
+	for i := 0; i < len(points); {
+		d := points[i][0] / day
+		var minU, qty, n, ts int64
+		var meds []int64
+		for ; i < len(points) && points[i][0]/day == d; i++ {
+			p := points[i]
+			minU = lowest(minU, p[1])
+			meds = append(meds, p[2])
+			qty += p[3]
+			n++
+			ts = p[0]
+		}
+		days = append(days, Point{ts, minU, median(meds), (2*qty + n) / (2 * n), n})
+	}
+	return days
+}
+
+// Compact rolls the scans of the days before the recent window into daily entries and drops the daily entries older
+// than dailyDays, like the addon does at each scan (CompactHistory), so merged history doesn't bring back what the
+// addon already rolled up.
+func (h *House) Compact(now int64) {
+	cutoff := (now - recentWindow) / day
+	oldest := now - dailyDays*day
+	for id, list := range h.Items {
+		var keep, old []Point
+		for _, p := range list {
+			switch {
+			case len(p) < 4:
+			case p[0]/day < cutoff:
+				old = append(old, p)
+			default:
+				keep = append(keep, p)
+			}
+		}
+		if len(keep) == len(list) {
+			continue
+		}
+		h.Daily[id] = MergeDaily(h.Daily[id], rollup(old))
+		h.Items[id] = keep
+		if len(keep) == 0 {
+			delete(h.Items, id)
+		}
+	}
+	for id, list := range h.Daily {
+		keep := slices.DeleteFunc(slices.Clone(list), func(p Point) bool { return p[0] < oldest })
+		switch {
+		case len(keep) == 0:
+			delete(h.Daily, id)
+		case len(keep) < len(list):
+			h.Daily[id] = keep
+		}
+	}
+}
+
+// Compact compacts every house.
+func (hs Houses) Compact(now int64) {
+	for _, h := range hs {
+		h.Compact(now)
+	}
+}
+
 // Merge adds the history of other into h.
 func (h *House) Merge(other *House) {
 	for id, list := range other.Items {
@@ -241,6 +323,33 @@ func (h *House) Counts() (items, recent, daily, scans int) {
 		daily += len(l)
 	}
 	return len(ids), recent, daily, len(h.Scans)
+}
+
+// Added describes what merged has more than hs, per auction house, e.g. "Horde AH: +3 items, +40 recent scan prices,
+// +2 daily, +1 scans".
+func (hs Houses) Added(merged Houses) string {
+	var parts []string
+	names := make([]string, 0, len(merged))
+	for n := range merged {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		var items, recent, daily, scans int
+		if h := hs[n]; h != nil {
+			items, recent, daily, scans = h.Counts()
+		}
+		mi, mr, md, ms := merged[n].Counts()
+		if mi == items && mr == recent && md == daily && ms == scans {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s AH: %+d items, %+d recent scan prices, %+d daily, %+d scans", n,
+			mi-items, mr-recent, md-daily, ms-scans))
+	}
+	if len(parts) == 0 {
+		return "same days combined"
+	}
+	return strings.Join(parts, "; ")
 }
 
 func joinPoints(list []Point) string {

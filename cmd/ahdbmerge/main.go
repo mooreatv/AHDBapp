@@ -11,16 +11,24 @@
 //
 // Every Account\*\SavedVariables\AuctionDB.lua gets the merged price history (only that part of the file is
 // rewritten, the previous file is kept as AuctionDB.lua.bak).
+//
+// Between computers: keep "ahdbmerge -serve <WTF>" running on each, with "-peer <other computer>" on one of them (or
+// all with -peer <hub> for more than 2), or run "ahdbmerge -sync <computer with -serve> <WTF>" with the game closed.
+// Each side confirms the other the first time.
 package main
 
 import (
 	"flag"
+	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
+	"time"
 
 	"fortio.org/cli"
 	"fortio.org/log"
@@ -29,8 +37,15 @@ import (
 const savedName = "AuctionDBForeverSaved"
 
 var (
-	force  = flag.Bool("force", false, "merge even when WoW seems to be running (it would overwrite the files on exit)")
-	dryRun = flag.Bool("n", false, "only show what would be merged, don't write anything")
+	force     = flag.Bool("force", false, "merge even when WoW seems to be running (it would overwrite the files on exit)")
+	dryRun    = flag.Bool("n", false, "only show what would be merged, don't write anything")
+	serveFlag = flag.Bool("serve", false, "keep running: sync with your other computers whenever there is something new")
+	syncAddr  = flag.String("sync", "", "also merge with the `computer` (name or address) running ahdbmerge -serve")
+	peerAddrs = flag.String("peer", "", "with -serve: other `computers` (comma separated) running ahdbmerge -serve")
+	port      = flag.Int("port", defaultPort, "network port for -serve and -sync")
+	// logs the price history counts (not in -serve)
+	logCounts = true
+	now       = func() int64 { return time.Now().Unix() }
 )
 
 type savedFile struct {
@@ -96,66 +111,131 @@ func readFile(path string) (*savedFile, error) {
 	return f, err
 }
 
-func main() {
-	cli.ArgsHelp = "<WoW WTF folder, or the game folder containing it>"
-	cli.MinArgs = 1
-	cli.Main()
-	dir := flag.Arg(0)
+// detail logs what -serve only shows with -loglevel debug.
+func detail(format string, args ...any) {
+	if logCounts {
+		log.Infof(format, args...)
+	} else {
+		log.Debugf(format, args...)
+	}
+}
+
+func logHouses(what string, hs Houses) {
+	for _, name := range slices.Sorted(maps.Keys(hs)) {
+		items, recent, daily, scans := hs[name].Counts()
+		detail("%s: %s AH: %d items, %d recent scan prices, %d daily, %d scans", what, name, items, recent, daily, scans)
+	}
+}
+
+// loadLocal reads the files with price history under dir, and returns them with their merged history.
+func loadLocal(dir string) ([]*savedFile, Houses, error) {
 	paths := findFiles(dir)
 	if len(paths) == 0 {
-		log.Fatalf("No Account\\*\\SavedVariables\\AuctionDB.lua under %s", dir)
-	}
-	if exe := wowRunning(); exe != "" && !*dryRun && !*force {
-		log.Fatalf("WoW is running (%s): close the game first (it saves its own copy of the files on exit), or -force",
-			exe)
+		return nil, nil, fmt.Errorf("no Account\\*\\SavedVariables\\AuctionDB.lua under %s", dir)
 	}
 	merged := Houses{}
 	var files []*savedFile
 	for _, p := range paths {
 		f, err := readFile(p)
 		if err != nil {
-			log.Fatalf("%s: %v", p, err)
+			return nil, nil, fmt.Errorf("%s: %w", p, err)
 		}
 		if f.houses == nil {
-			log.Infof("%s: no price history, skipped", p)
+			detail("%s: no price history, skipped", p)
 			continue
 		}
-		for name, h := range f.houses {
-			items, recent, daily, scans := h.Counts()
-			log.Infof("%s: %s AH: %d items, %d recent scan prices, %d daily, %d scans", p, name, items, recent, daily,
-				scans)
-		}
+		logHouses(p, f.houses)
 		merged.Merge(f.houses)
 		files = append(files, f)
 	}
-	if len(files) < 2 {
-		log.Infof("Nothing to merge: %d file(s) with price history", len(files))
-		return
-	}
-	for name, h := range merged {
-		items, recent, daily, scans := h.Counts()
-		log.Infof("Merged %s AH: %d items, %d recent scan prices, %d daily, %d scans", name, items, recent, daily, scans)
-	}
+	merged.Compact(now())
+	return files, merged, nil
+}
+
+// writeLocal writes the merged history in the files that don't have it yet.
+func writeLocal(files []*savedFile, merged Houses, dry bool) {
+	logHouses("Merged", merged)
 	for _, f := range files {
 		nl := "\n"
 		if strings.Contains(f.text, "\r\n") {
 			nl = "\r\n"
 		}
 		if f.houses.Lua(nl) == merged.Lua(nl) {
-			log.Infof("%s: already up to date", f.path)
+			detail("%s: already up to date", f.path)
 			continue
 		}
 		text := f.text[:f.start] + merged.Lua(nl) + f.text[f.end:]
-		if *dryRun {
-			log.Infof("%s: would be updated", f.path)
+		added := f.houses.Added(merged)
+		if dry {
+			log.Infof("%s: would be updated: %s", f.path, added)
 			continue
 		}
 		if err := os.WriteFile(f.path+".bak", []byte(f.text), 0o644); err != nil {
-			log.Fatalf("Backup of %s: %v", f.path, err)
+			log.Errf("Backup of %s: %v, not updated", f.path, err)
+			continue
 		}
 		if err := os.WriteFile(f.path, []byte(text), 0o644); err != nil {
-			log.Fatalf("Writing %s: %v", f.path, err)
+			log.Errf("Writing %s: %v", f.path, err)
+			continue
 		}
-		log.Infof("%s: updated (previous one in %s.bak)", f.path, filepath.Base(f.path))
+		log.Infof("%s: updated: %s (previous one in %s.bak)", f.path, added, filepath.Base(f.path))
+	}
+}
+
+func main() {
+	cli.ArgsHelp = "<WoW WTF folder, or the game folder containing it>"
+	cli.MinArgs = 1
+	cli.Main()
+	dir := flag.Arg(0)
+	if *serveFlag || *syncAddr != "" {
+		if *serveFlag && *syncAddr != "" {
+			log.Fatalf("-serve or -sync, not both")
+		}
+		id, err := loadIdentity()
+		if err != nil {
+			log.Fatalf("Key for syncing: %v", err)
+		}
+		if *serveFlag {
+			if len(findFiles(dir)) == 0 {
+				log.Fatalf("No Account\\*\\SavedVariables\\AuctionDB.lua under %s", dir)
+			}
+			logCounts = false
+			newServer(id, dir, strings.Split(*peerAddrs, ","), *port).run()
+			return
+		}
+		checkWow()
+		files, merged, err := loadLocal(dir)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		other, rem, err := syncWith(id, withPort(*syncAddr), merged, "", 0)
+		if err != nil {
+			log.Fatalf("Sync with %s: %v", *syncAddr, err)
+		}
+		logHouses(rem.name, other)
+		merged.Merge(other)
+		merged.Compact(now())
+		writeLocal(files, merged, *dryRun)
+		return
+	}
+	if *peerAddrs != "" {
+		log.Fatalf("-peer goes with -serve")
+	}
+	checkWow()
+	files, merged, err := loadLocal(dir)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	if len(files) < 2 {
+		log.Infof("Nothing to merge: %d file(s) with price history", len(files))
+		return
+	}
+	writeLocal(files, merged, *dryRun)
+}
+
+func checkWow() {
+	if exe := wowRunning(); exe != "" && !*dryRun && !*force {
+		log.Fatalf("WoW is running (%s): close the game first (it saves its own copy of the files on exit), or -force",
+			exe)
 	}
 }

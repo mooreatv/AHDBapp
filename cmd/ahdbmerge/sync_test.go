@@ -40,7 +40,7 @@ func startServer(t *testing.T, id *identity, dir string) (string, chan error) {
 			return
 		}
 		defer func() { _ = conn.Close() }()
-		s := newServer(id, dir, nil, 0)
+		s := newServer(id, dir, "", 0)
 		s.files()
 		done <- answer(id, conn.(*tls.Conn), s.merge)
 		s.files() // what the files goroutine does after a merge
@@ -146,7 +146,7 @@ func TestSetAddr(t *testing.T) {
 		t.Errorf("addr = %q", a)
 	}
 	id.setAddr("k", "laptop:8642", true)
-	id.setAddr("k", "192.168.1.7:8642", false) // the name given to -peer stays
+	id.setAddr("k", "192.168.1.7:8642", false) // the name given to -sync stays
 	if a := id.trusted["k"].Addr; a != "laptop:8642" {
 		t.Errorf("addr = %q", a)
 	}

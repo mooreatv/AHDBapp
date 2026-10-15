@@ -1,7 +1,7 @@
 package main
 
 // ahdbmerge -serve: keeps the merged price history of this computer and the others it syncs with, answers their syncs,
-// and syncs with them (the -peer ones and every trusted one whose -serve answered before) when there is something new:
+// and syncs with them (the -sync one and every trusted one whose -serve answered before) when there is something new:
 // at start, when the AuctionDB.lua files change (WoW saves them at logout, /reload and exit) and after getting new
 // data from one of them (so with a hub, what one computer sends reaches the others). The files here are written
 // whenever WoW isn't running (it would overwrite them on exit), at the latest when it exits.
@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,7 +22,7 @@ const watchEvery = 5 * time.Second
 type server struct {
 	id    *identity
 	dir   string
-	peers []string // -peer addresses
+	peer  string // -sync address
 	port  int
 	mu    sync.Mutex
 	state Houses // never changed once set, replaced instead
@@ -37,16 +36,14 @@ type server struct {
 	refused map[string]bool // addresses refused, not asked again
 }
 
-func newServer(id *identity, dir string, peers []string, port int) *server {
+func newServer(id *identity, dir, peer string, port int) *server {
 	s := &server{
 		id: id, dir: dir, port: port, state: Houses{}, lua: Houses{}.Lua("\n"),
 		kick: make(chan struct{}, 1), write: make(chan struct{}, 1),
 		mtimes: map[string]time.Time{}, refused: map[string]bool{},
 	}
-	for _, p := range peers {
-		if p = strings.TrimSpace(p); p != "" {
-			s.peers = append(s.peers, withPort(p))
-		}
+	if peer != "" {
+		s.peer = withPort(peer)
 	}
 	return s
 }
@@ -145,7 +142,10 @@ func (s *server) syncPeers() {
 		done := map[string]bool{}
 		known := s.id.servers()
 		keyOf := map[string]string{}
-		targets := append([]string{}, s.peers...)
+		var targets []string
+		if s.peer != "" {
+			targets = append(targets, s.peer)
+		}
 		for fp, a := range known {
 			keyOf[a] = fp
 			targets = append(targets, a)

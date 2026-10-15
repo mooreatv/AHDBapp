@@ -24,15 +24,17 @@ other accounts' characters for prices directly (`/ahdb trust`).
 
 ### Between your computers
 
-Keep `ahdbmerge -serve` running on each computer (allow it through the Windows firewall when asked), and tell one of
-them where the other is (its name or IP address):
-
-```
-ahdbmerge -serve -peer OTHERCOMPUTER "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
-```
+Keep `ahdbmerge -serve` running on each computer (allow it through the Windows firewall when asked). On one of them
+(the hub):
 
 ```
 ahdbmerge -serve "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
+```
+
+and on the other(s), with the hub's name or IP address:
+
+```
+ahdbmerge -serve -sync HUB "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
 ```
 
 They sync whenever there is something new: at start, and when WoW saves its files (logout, `/reload`, exit). Each
@@ -40,9 +42,8 @@ computer's files get the price history of all the accounts of all the computers,
 overwrite them on exit), else when it exits. So: close the game on one computer, start it on the other, prices are
 there.
 
-More than 2 computers: start the others with `-peer` the same one (the hub); what one sends reaches the others
-through it. Without keeping it running, `ahdbmerge -sync COMPUTER <WTF>` (game closed) syncs once with a computer
-running `-serve`.
+With more than 2 computers, what one sends reaches the others through the hub. Without `-serve`, `ahdbmerge -sync HUB
+<WTF>` (game closed) syncs once.
 
 The first time, each side asks to allow the other one, showing both keys so you can check they match (do it in a
 terminal on both). Allowed computers are remembered, with where they answer, in `%AppData%\ahdbmerge\trusted.json`

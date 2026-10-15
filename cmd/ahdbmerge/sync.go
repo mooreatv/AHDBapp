@@ -235,7 +235,7 @@ func (id *identity) save() {
 }
 
 // setAddr remembers where the -serve of a trusted computer answers. Without given, only replaces an IP address (the
-// computer may have a new one), not a name given to -sync or -peer.
+// computer may have a new one), not a name given to -sync.
 func (id *identity) setAddr(fp, addr string, given bool) {
 	id.mu.Lock()
 	defer id.mu.Unlock()

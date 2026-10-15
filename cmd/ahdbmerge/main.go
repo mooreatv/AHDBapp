@@ -12,9 +12,9 @@
 // Every Account\*\SavedVariables\AuctionDB.lua gets the merged price history (only that part of the file is
 // rewritten, the previous file is kept as AuctionDB.lua.bak).
 //
-// Between computers: keep "ahdbmerge -serve <WTF>" running on each, with "-peer <other computer>" on one of them (or
-// all with -peer <hub> for more than 2), or run "ahdbmerge -sync <computer with -serve> <WTF>" with the game closed.
-// Each side confirms the other the first time.
+// Between computers: keep "ahdbmerge -serve <WTF>" running on one (the hub), and "ahdbmerge -serve -sync <hub> <WTF>"
+// on the others; or, game closed, "ahdbmerge -sync <hub> <WTF>" syncs once. Each side confirms the other the first
+// time.
 package main
 
 import (
@@ -40,8 +40,8 @@ var (
 	force     = flag.Bool("force", false, "merge even when WoW seems to be running (it would overwrite the files on exit)")
 	dryRun    = flag.Bool("n", false, "only show what would be merged, don't write anything")
 	serveFlag = flag.Bool("serve", false, "keep running: sync with your other computers whenever there is something new")
-	syncAddr  = flag.String("sync", "", "also merge with the `computer` (name or address) running ahdbmerge -serve")
-	peerAddrs = flag.String("peer", "", "with -serve: other `computers` (comma separated) running ahdbmerge -serve")
+	syncAddr  = flag.String("sync", "", "also merge with the `computer` (name or address) running ahdbmerge -serve: "+
+		"once, or with -serve whenever there is something new")
 	port      = flag.Int("port", defaultPort, "network port for -serve and -sync")
 	// logs the price history counts (not in -serve)
 	logCounts = true
@@ -188,9 +188,6 @@ func main() {
 	cli.Main()
 	dir := flag.Arg(0)
 	if *serveFlag || *syncAddr != "" {
-		if *serveFlag && *syncAddr != "" {
-			log.Fatalf("-serve or -sync, not both")
-		}
 		id, err := loadIdentity()
 		if err != nil {
 			log.Fatalf("Key for syncing: %v", err)
@@ -200,7 +197,7 @@ func main() {
 				log.Fatalf("No Account\\*\\SavedVariables\\AuctionDB.lua under %s", dir)
 			}
 			logCounts = false
-			newServer(id, dir, strings.Split(*peerAddrs, ","), *port).run()
+			newServer(id, dir, *syncAddr, *port).run()
 			return
 		}
 		checkWow()
@@ -217,9 +214,6 @@ func main() {
 		merged.Compact(now())
 		writeLocal(files, merged, *dryRun)
 		return
-	}
-	if *peerAddrs != "" {
-		log.Fatalf("-peer goes with -serve")
 	}
 	checkWow()
 	files, merged, err := loadLocal(dir)

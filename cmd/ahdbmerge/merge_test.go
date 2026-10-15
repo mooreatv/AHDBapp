@@ -152,18 +152,62 @@ func TestMergeAndWrite(t *testing.T) {
 	}
 }
 
-// Same case as the addon's (History.lua) merge, run in a Lua harness: same day from 2 sources.
+// Same rules as the addon's (History.lua) merge: same day from 2 sources.
 func TestMergeDailyLikeTheAddon(t *testing.T) {
 	now := int64(1000*day + 36000)
 	got := MergeDaily([]Point{{now - 10*day, 50, 60, 1, 1}, {now - 5*day, 90, 100, 6, 3}},
-		[]Point{{now - 5*day + 60, 70, 110, 10, 5}})
-	want := []Point{{now - 10*day, 50, 60, 1, 1}, {now - 5*day + 60, 70, 110, 9, 8}}
+		[]Point{{now - 5*day + 60, 95, 110, 10, 5}})
+	want := []Point{{now - 10*day, 50, 60, 1, 1}, {now - 5*day + 60, 90, 110, 9, 8}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("MergeDaily = %v, want %v", got, want)
 	}
 	// same last scan: same data, kept once
 	if got := MergeDaily(want, want); !reflect.DeepEqual(got, want) {
 		t.Errorf("MergeDaily of the same = %v", got)
+	}
+	// an older copy of a combined day (e.g. a file written before the last sync) doesn't add its scans again
+	old := []Point{{now - 5*day, 90, 100, 6, 3}}
+	if got := MergeDaily(want, old); !reflect.DeepEqual(got, want) {
+		t.Errorf("MergeDaily with an older copy = %v", got)
+	}
+	if got := MergeDaily(old, want); !reflect.DeepEqual(got, want) {
+		t.Errorf("MergeDaily of an older copy = %v", got)
+	}
+	// later with more scans but a higher min: not the same scans, combined
+	other := []Point{{now - 5*day + 120, 95, 100, 6, 4}}
+	if got := MergeDaily(old, other); !reflect.DeepEqual(got, []Point{{now - 5*day + 120, 90, 100, 6, 7}}) {
+		t.Errorf("MergeDaily of different scans = %v", got)
+	}
+}
+
+// Same as the addon's CompactHistory: scans before the last 48h rolled into daily, daily over 180 days dropped.
+func TestCompact(t *testing.T) {
+	now := int64(1000*day + 36000)
+	d3 := now - 3*day
+	h := newHouse()
+	h.Items[1] = []Point{{d3, 100, 120, 4}, {d3 + 60, 0, 0, 0}, {d3 + 120, 90, 130, 5}, {now - 60, 80, 110, 2}}
+	h.Items[2] = []Point{{d3, 10, 20, 3}}
+	h.Daily[1] = []Point{{now - 200*day, 1, 2, 3, 1}, {now - 5*day, 50, 60, 1, 1}}
+	h.Daily[2] = []Point{{now - 200*day, 1, 2, 3, 1}}
+	h.Compact(now)
+	if want := []Point{{now - 60, 80, 110, 2}}; !reflect.DeepEqual(h.Items[1], want) {
+		t.Errorf("recent = %v", h.Items[1])
+	}
+	// lowest non 0 min, lower median of the non 0 medians, rounded average quantity (9/3), 3 scans
+	if want := []Point{{now - 5*day, 50, 60, 1, 1}, {d3 + 120, 90, 120, 3, 3}}; !reflect.DeepEqual(h.Daily[1], want) {
+		t.Errorf("daily = %v", h.Daily[1])
+	}
+	if _, ok := h.Items[2]; ok {
+		t.Errorf("item 2 recent = %v", h.Items[2])
+	}
+	if want := []Point{{d3, 10, 20, 3, 1}}; !reflect.DeepEqual(h.Daily[2], want) {
+		t.Errorf("item 2 daily = %v", h.Daily[2])
+	}
+	hs := Houses{"Horde": h}
+	before := hs.Lua("\n")
+	hs.Compact(now)
+	if hs.Lua("\n") != before {
+		t.Error("compacting again changed it")
 	}
 }
 
@@ -176,6 +220,15 @@ func TestWowExe(t *testing.T) {
 		`"WowVoiceProxy.exe","1","Console","1",""`: false,
 	} {
 		if got := wowExe.MatchString(line); got != want {
+			t.Errorf("%s: %v, want %v", line, got, want)
+		}
+	}
+	for line, want := range map[string]bool{
+		"/Applications/World of Warcraft/_classic_era_/World of Warcraft Classic.app/Contents/MacOS/World of Warcraft Classic": true,
+		"/Applications/World of Warcraft/_retail_/World of Warcraft.app/Contents/MacOS/World of Warcraft":                     true,
+		"/Applications/Battle.net.app/Contents/MacOS/Battle.net":                                                              false,
+	} {
+		if got := wowMac.MatchString(line); got != want {
 			t.Errorf("%s: %v, want %v", line, got, want)
 		}
 	}

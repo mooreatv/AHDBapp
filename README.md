@@ -8,7 +8,7 @@ Already includes a pretty cool
 - [lua2json golang package](lua2json/) Golang version of the sed+awk script hack
 
 
-## Merging price history between your WoW accounts (WoW Forever)
+## Merging price history between your WoW accounts and computers (WoW Forever)
 
 `ahdbmerge` gives every WoW account of a game install the AHDB price history all of them scanned (saved data is per
 account). With the game closed:
@@ -21,6 +21,34 @@ ahdbmerge "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
 Only the price history part of each `Account\*\SavedVariables\AuctionDB.lua` is rewritten; the previous file is kept
 as `AuctionDB.lua.bak`. `-n` shows what would be merged without writing. While playing, AHDB can also ask your
 other accounts' characters for prices directly (`/ahdb trust`).
+
+### Between your computers
+
+Keep `ahdbmerge` running on each computer. On one of them, the hub (allow it through the Windows firewall when
+asked):
+
+```
+ahdbmerge -serve "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
+```
+
+and on the other(s), with the hub's name or IP address:
+
+```
+ahdbmerge -sync HUB "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
+```
+
+The others send the hub what's new as soon as WoW saves their files (logout, `/reload`, exit), and check every 15
+seconds whether the hub got something new (from its own game or another computer). The hub never connects to them, so
+they can be off or asleep. Each computer's files get the price history of all the accounts of all the computers,
+while its game is closed (WoW would overwrite them on exit), else when it exits. So: close the game on one computer,
+start it on another, prices are there.
+
+`ahdbmerge -sync HUB -once <WTF>` (game closed) syncs once and exits.
+
+The first time, each side asks to allow the other one, showing both keys so you can check they match (do it in a
+terminal on both). Allowed computers are remembered in `%AppData%\ahdbmerge\trusted.json`
+(`~/Library/Application Support/ahdbmerge/trusted.json` on macOS; remove one to forget it). `-port` changes the port
+(8642).
 
 ## Getting started
 

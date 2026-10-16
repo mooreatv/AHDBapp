@@ -24,7 +24,7 @@ changelog:
       - "^docs:"
       - "^test:"
 gomod:
-  # build from the module proxy so the binary reports its version (ahdbmerge -version, sync version check)
+  # build from the module proxy so the binary reports its version (ahdbmerge version, sync version check)
   proxy: true
   mod: mod
 archives:

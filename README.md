@@ -11,10 +11,24 @@ Already includes a pretty cool
 ## Merging price history between your WoW accounts and computers (WoW Forever)
 
 `ahdbmerge` gives every WoW account of a game install the AHDB price history all of them scanned (saved data is per
-account). With the game closed:
+account).
+
+### Install
+
+Download it for Windows, macOS or Linux from the [releases page](https://github.com/mooreatv/AHDBapp/releases/latest)
+(the `ahdbmerge_..._windows_amd64.zip` on most Windows PCs, `darwin_arm64` on Apple Silicon Macs), or with Go:
 
 ```
 go install github.com/mooreatv/AHDBapp/cmd/ahdbmerge@latest
+```
+
+`ahdbmerge -version` shows the version you have.
+
+### Use
+
+With the game closed:
+
+```
 ahdbmerge "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
 ```
 

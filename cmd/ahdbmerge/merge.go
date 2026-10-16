@@ -338,9 +338,17 @@ func (h *House) Counts() (items, recent, daily, scans int) {
 	return len(ids), recent, daily, len(h.Scans)
 }
 
-// Added describes what merged has more than hs, per auction house, e.g. "Horde AH: +3 items, +40 recent scan prices,
-// +2 daily, +1 scans".
-func (hs Houses) Added(merged Houses) string {
+// Added describes what merged (compacted at now) has more than hs, per auction house, e.g. "Horde AH: +3 items, +40
+// recent scan prices, +2 daily, +1 scans"; "" if it's only hs compacted. hs is compared compacted at now too, so the
+// scans rolled into daily entries since it was last compacted don't count as removed scans and added days.
+func (hs Houses) Added(merged Houses, now int64) string {
+	base := Houses{}
+	base.Merge(hs)
+	base.Compact(now)
+	if base.Lua("\n") == merged.Lua("\n") {
+		return ""
+	}
+	hs = base
 	var parts []string
 	names := make([]string, 0, len(merged))
 	for n := range merged {

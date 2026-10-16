@@ -211,6 +211,28 @@ func TestCompact(t *testing.T) {
 	}
 }
 
+// Scans rolled into daily entries since the last compaction aren't reported as removed.
+func TestAddedCompacted(t *testing.T) {
+	now := int64(1000*day + 36000)
+	d3 := now - 3*day
+	h := newHouse()
+	h.Items[1] = []Point{{d3, 100, 120, 4}, {d3 + 60, 90, 130, 5}, {now - 60, 80, 110, 2}}
+	old := Houses{"Horde": h}
+	merged := Houses{}
+	merged.Merge(old)
+	merged.Compact(now)
+	if got := old.Added(merged, now); got != "" {
+		t.Errorf("only compacted: %q", got)
+	}
+	o := newHouse()
+	o.Items[1] = []Point{{now - 30, 70, 100, 1}}
+	merged.Merge(Houses{"Horde": o})
+	merged.Compact(now)
+	if got, want := old.Added(merged, now), "Horde AH: +0 items, +1 recent scan prices, +0 daily, +0 scans"; got != want {
+		t.Errorf("Added = %q, want %q", got, want)
+	}
+}
+
 func TestWowExe(t *testing.T) {
 	for line, want := range map[string]bool{
 		`"WowB.exe","1","Console","1","1 K"`:       true,
@@ -225,8 +247,8 @@ func TestWowExe(t *testing.T) {
 	}
 	for line, want := range map[string]bool{
 		"/Applications/World of Warcraft/_classic_era_/World of Warcraft Classic.app/Contents/MacOS/World of Warcraft Classic": true,
-		"/Applications/World of Warcraft/_retail_/World of Warcraft.app/Contents/MacOS/World of Warcraft":                     true,
-		"/Applications/Battle.net.app/Contents/MacOS/Battle.net":                                                              false,
+		"/Applications/World of Warcraft/_retail_/World of Warcraft.app/Contents/MacOS/World of Warcraft":                      true,
+		"/Applications/Battle.net.app/Contents/MacOS/Battle.net":                                                               false,
 	} {
 		if got := wowMac.MatchString(line); got != want {
 			t.Errorf("%s: %v, want %v", line, got, want)

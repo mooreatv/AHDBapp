@@ -3,7 +3,7 @@ package main
 // Syncing with the ahdbmerge -serve of another computer. TLS with a key per computer (made on first use, kept in the
 // user config folder); each side confirms the other's key the first time (like ssh), then remembers it.
 //
-// Messages are gzipped JSON, in that order: server name, client name and the server's history version it has if
+// Messages are gzipped JSON, in that order: server name and version, client name and version and the server's history version it has if
 // nothing is new on its side (server confirms, or says it's still that version: done), client price history, merged
 // price history and its version back.
 
@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"fortio.org/cli"
 	"fortio.org/log"
 )
 
@@ -45,6 +46,7 @@ const (
 
 type message struct {
 	Name     string `json:",omitempty"` // computer name
+	Release  string `json:",omitempty"` // ahdbmerge version, with the name
 	DryRun   bool   `json:",omitempty"`
 	Have     string `json:",omitempty"` // client: version of the server's history it has, when nothing new on its side
 	UpToDate bool   `json:",omitempty"` // server: still that version, nothing to sync
@@ -268,6 +270,23 @@ func withPort(addr string) string {
 	return net.JoinHostPort(strings.Trim(addr, "[]"), strconv.Itoa(*port))
 }
 
+var versionWarned sync.Map // name and version already warned about
+
+// checkRelease warns (once per computer and version) when the other side runs another ahdbmerge version.
+func checkRelease(name, v string) {
+	if v == cli.ShortVersion {
+		return
+	}
+	if _, done := versionWarned.LoadOrStore(name+" "+v, true); done {
+		return
+	}
+	if v == "" {
+		v = "an older version"
+	}
+	log.Warnf("%s runs ahdbmerge %s, this computer %s: best to update both to the same version", name, v,
+		cli.ShortVersion)
+}
+
 // remote is the other side of a sync.
 type remote struct {
 	key, name string
@@ -305,7 +324,8 @@ func syncWith(id *identity, addr string, local Houses, have string) (Houses, rem
 	case !id.allow(rem.key, fmt.Sprintf("%s at %s", m.Name, addr), m.Name):
 		return nil, rem, "", errNotAllowed
 	}
-	if err := send(conn, &message{Name: hostname(), DryRun: *dryRun, Have: have}); err != nil {
+	checkRelease(rem.name, m.Release)
+	if err := send(conn, &message{Name: hostname(), Release: cli.ShortVersion, DryRun: *dryRun, Have: have}); err != nil {
 		return nil, rem, "", err
 	}
 	waiting := time.AfterFunc(2*time.Second, func() {
@@ -349,7 +369,7 @@ func answer(id *identity, conn *tls.Conn, srv answerer) error {
 	if err != nil {
 		return err
 	}
-	if err := send(conn, &message{Name: hostname()}); err != nil {
+	if err := send(conn, &message{Name: hostname(), Release: cli.ShortVersion}); err != nil {
 		return err
 	}
 	r := bufio.NewReader(conn)
@@ -363,6 +383,7 @@ func answer(id *identity, conn *tls.Conn, srv answerer) error {
 		_ = send(conn, &message{Error: "not allowed"})
 		return errNotAllowed
 	}
+	checkRelease(rem.name, m.Release)
 	if v := srv.version(); m.Have != "" && m.Have == v {
 		return send(conn, &message{UpToDate: true, Version: v})
 	}

@@ -13,3 +13,5 @@
 
 testing/
 bench/
+dist/
+.golangci.yml

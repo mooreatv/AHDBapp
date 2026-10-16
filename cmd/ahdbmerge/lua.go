@@ -80,7 +80,7 @@ func (p *parser) value() (any, error) {
 			case "false":
 				return false, nil
 			}
-			return nil, nil
+			return nil, nil //nolint:nilnil // Lua nil
 		}
 	}
 	return nil, p.errorf("unexpected %q", p.s[p.i])

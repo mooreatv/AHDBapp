@@ -177,7 +177,10 @@ func writeLocal(files []*savedFile, merged Houses, dry bool) {
 			continue
 		}
 		text := f.text[:f.start] + merged.Lua(nl) + f.text[f.end:]
-		added := f.houses.Added(merged)
+		added := f.houses.Added(merged, now())
+		if added == "" {
+			added = "scans of older days rolled into daily prices"
+		}
 		if dry {
 			log.Infof("%s: would be updated: %s", f.path, added)
 			continue

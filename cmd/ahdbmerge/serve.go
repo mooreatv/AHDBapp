@@ -67,19 +67,20 @@ func newServer(id *identity, dir, hub string, port int) *server {
 	return s
 }
 
-// absorb merges hs into the state, returns what that added ("" if nothing changed).
+// absorb merges hs into the state, returns what that added ("" if nothing new, only compacted).
 func (s *server) absorb(hs Houses) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	t := now()
 	next := Houses{}
 	next.Merge(s.state)
 	next.Merge(hs)
-	next.Compact(now())
+	next.Compact(t)
 	l := next.Lua("\n")
 	if l == s.lua {
 		return ""
 	}
-	added := s.state.Added(next)
+	added := s.state.Added(next, t)
 	s.state, s.lua, s.ver = next, l, versionOf(l)
 	return added
 }

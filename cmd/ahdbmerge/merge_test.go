@@ -247,8 +247,8 @@ func TestWowExe(t *testing.T) {
 	}
 	for line, want := range map[string]bool{
 		"/Applications/World of Warcraft/_classic_era_/World of Warcraft Classic.app/Contents/MacOS/World of Warcraft Classic": true,
-		"/Applications/World of Warcraft/_retail_/World of Warcraft.app/Contents/MacOS/World of Warcraft":                     true,
-		"/Applications/Battle.net.app/Contents/MacOS/Battle.net":                                                              false,
+		"/Applications/World of Warcraft/_retail_/World of Warcraft.app/Contents/MacOS/World of Warcraft":                      true,
+		"/Applications/Battle.net.app/Contents/MacOS/Battle.net":                                                               false,
 	} {
 		if got := wowMac.MatchString(line); got != want {
 			t.Errorf("%s: %v, want %v", line, got, want)

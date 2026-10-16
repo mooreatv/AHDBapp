@@ -22,7 +22,7 @@ Download it for Windows, macOS or Linux from the [releases page](https://github.
 go install github.com/mooreatv/AHDBapp/cmd/ahdbmerge@latest
 ```
 
-`ahdbmerge -version` shows the version you have.
+`ahdbmerge version` shows the version you have.
 
 ### Use
 

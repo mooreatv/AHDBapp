@@ -18,6 +18,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"maps"
@@ -44,7 +45,7 @@ var (
 		"ahdbmerge -serve)")
 	once = flag.Bool("once", false, "with -sync: sync once (game closed) and exit")
 	port = flag.Int("port", defaultPort, "network port for -serve and -sync")
-	// logs the price history counts (not in -serve)
+	// logs the price history counts (not in -serve).
 	logCounts = true
 	now       = func() int64 { return time.Now().Unix() }
 )
@@ -68,25 +69,28 @@ func findFiles(dir string) []string {
 }
 
 // WoW game clients: Wow.exe (retail), WowB.exe (beta, WoW Forever), WowT.exe (PTR), WowClassic.exe... but not
-// other programs starting with Wow (WowUp...).
-var wowExe = regexp.MustCompile(`(?i)^"(wow(classic)?[bt]?(-64)?\.exe)"`)
+// other programs starting with Wow (WowUp...). Windows tasklist CSV lines ("Wow.exe",...), or on Linux the process
+// names (ps -eo comm=) Wine/Proton give the game: its exe name.
+var wowExe = regexp.MustCompile(`(?i)^"?(wow(classic)?[bt]?(-64)?\.exe)("|$)`)
 
 // On macOS (ps -axo comm= paths): .../MacOS/World of Warcraft, World of Warcraft Classic...
 var wowMac = regexp.MustCompile(`/(World of Warcraft[^/]*)$`)
 
-// wowRunning returns the name of a running WoW client, "" if none (Windows and macOS).
+// wowRunning returns the name of a running WoW client, "" if none.
 func wowRunning() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	var out []byte
 	var err error
 	re := wowExe
 	switch runtime.GOOS {
 	case "windows":
-		out, err = exec.Command("tasklist", "/FO", "CSV", "/NH").Output()
+		out, err = exec.CommandContext(ctx, "tasklist", "/FO", "CSV", "/NH").Output()
 	case "darwin":
-		out, err = exec.Command("ps", "-axo", "comm=").Output()
+		out, err = exec.CommandContext(ctx, "ps", "-axo", "comm=").Output()
 		re = wowMac
 	default:
-		return ""
+		out, err = exec.CommandContext(ctx, "ps", "-eo", "comm=").Output()
 	}
 	if err != nil {
 		log.Warnf("Can't list processes: %v", err)
@@ -124,7 +128,7 @@ func readFile(path string) (*savedFile, error) {
 }
 
 // detail logs what -serve only shows with -loglevel debug.
-func detail(format string, args ...any) {
+func detailf(format string, args ...any) {
 	if logCounts {
 		log.Infof(format, args...)
 	} else {
@@ -135,7 +139,7 @@ func detail(format string, args ...any) {
 func logHouses(what string, hs Houses) {
 	for _, name := range slices.Sorted(maps.Keys(hs)) {
 		items, recent, daily, scans := hs[name].Counts()
-		detail("%s: %s AH: %d items, %d recent scan prices, %d daily, %d scans", what, name, items, recent, daily, scans)
+		detailf("%s: %s AH: %d items, %d recent scan prices, %d daily, %d scans", what, name, items, recent, daily, scans)
 	}
 }
 
@@ -153,7 +157,7 @@ func loadLocal(dir string) ([]*savedFile, Houses, error) {
 			return nil, nil, fmt.Errorf("%s: %w", p, err)
 		}
 		if f.houses == nil {
-			detail("%s: no price history, skipped", p)
+			detailf("%s: no price history, skipped", p)
 			continue
 		}
 		logHouses(p, f.houses)
@@ -173,7 +177,7 @@ func writeLocal(files []*savedFile, merged Houses, dry bool) {
 			nl = "\r\n"
 		}
 		if f.houses.Lua(nl) == merged.Lua(nl) {
-			detail("%s: already up to date", f.path)
+			detailf("%s: already up to date", f.path)
 			continue
 		}
 		text := f.text[:f.start] + merged.Lua(nl) + f.text[f.end:]
@@ -185,10 +189,12 @@ func writeLocal(files []*savedFile, merged Houses, dry bool) {
 			log.Infof("%s: would be updated: %s", f.path, added)
 			continue
 		}
+		//nolint:gosec // same permissions as the game's own saved variables
 		if err := os.WriteFile(f.path+".bak", []byte(f.text), 0o644); err != nil {
 			log.Errf("Backup of %s: %v, not updated", f.path, err)
 			continue
 		}
+		//nolint:gosec // same permissions as the game's own saved variables
 		if err := os.WriteFile(f.path, []byte(text), 0o644); err != nil {
 			log.Errf("Writing %s: %v", f.path, err)
 			continue
@@ -206,31 +212,7 @@ func main() {
 		log.Fatalf("-once goes with -sync, without -serve")
 	}
 	if *serveFlag || *syncAddr != "" {
-		id, err := loadIdentity()
-		if err != nil {
-			log.Fatalf("Key for syncing: %v", err)
-		}
-		if !*once {
-			if len(findFiles(dir)) == 0 {
-				log.Fatalf("No Account\\*\\SavedVariables\\AuctionDB.lua under %s", dir)
-			}
-			logCounts = false
-			newServer(id, dir, *syncAddr, *port).run(*serveFlag)
-			return
-		}
-		checkWow()
-		files, merged, err := loadLocal(dir)
-		if err != nil {
-			log.Fatalf("%v", err)
-		}
-		other, rem, _, err := syncWith(id, withPort(*syncAddr), merged, "")
-		if err != nil {
-			log.Fatalf("Sync with %s: %v", *syncAddr, err)
-		}
-		logHouses(rem.name, other)
-		merged.Merge(other)
-		merged.Compact(now())
-		writeLocal(files, merged, *dryRun)
+		syncMain(dir)
 		return
 	}
 	checkWow()
@@ -242,6 +224,35 @@ func main() {
 		log.Infof("Nothing to merge: %d file(s) with price history", len(files))
 		return
 	}
+	writeLocal(files, merged, *dryRun)
+}
+
+// syncMain runs -serve, -sync, or -sync -once.
+func syncMain(dir string) {
+	id, err := loadIdentity()
+	if err != nil {
+		log.Fatalf("Key for syncing: %v", err)
+	}
+	if !*once {
+		if len(findFiles(dir)) == 0 {
+			log.Fatalf("No Account\\*\\SavedVariables\\AuctionDB.lua under %s", dir)
+		}
+		logCounts = false
+		newServer(id, dir, *syncAddr, *port).run(*serveFlag)
+		return
+	}
+	checkWow()
+	files, merged, err := loadLocal(dir)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	other, rem, _, err := syncWith(id, withPort(*syncAddr), merged, "")
+	if err != nil {
+		log.Fatalf("Sync with %s: %v", *syncAddr, err)
+	}
+	logHouses(rem.name, other)
+	merged.Merge(other)
+	merged.Compact(now())
 	writeLocal(files, merged, *dryRun)
 }
 

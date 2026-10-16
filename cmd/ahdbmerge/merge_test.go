@@ -240,6 +240,10 @@ func TestWowExe(t *testing.T) {
 		`"WowClassic.exe","1","Console","1","1 K"`: true,
 		`"WowUp-CF.exe","1","Console","1","1 K"`:   false,
 		`"WowVoiceProxy.exe","1","Console","1",""`: false,
+		"WowB.exe":       true, // Linux, Wine
+		"WowClassic.exe": true,
+		"WowUp-CF.exe":   false,
+		"wineserver":     false,
 	} {
 		if got := wowExe.MatchString(line); got != want {
 			t.Errorf("%s: %v, want %v", line, got, want)

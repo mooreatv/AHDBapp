@@ -7,7 +7,8 @@ package main
 // Merged like the addon does with prices from trusted characters: same scan (ts) kept once, same day combined (lowest
 // min, median of the entry with more scans, scan weighted quantity, scans added; but an entry that is the other one
 // plus later scans replaces it, not to count scans twice), then compacted like the addon does
-// (scans of days before the last 48h rolled into daily entries, those older than 180 days dropped).
+// (scans of days before the house's last 30 scans or the last 7 days rolled into daily entries, those older than 180
+// days dropped).
 
 import (
 	"fmt"
@@ -19,10 +20,11 @@ import (
 )
 
 const (
-	day          = 86400
-	maxScans     = 100
-	recentWindow = 48 * 3600 // RECENT and DAILY_DAYS of History.lua
-	dailyDays    = 180
+	day         = 86400
+	maxScans    = 100
+	recentScans = 30 // RECENT_SCANS, RECENT_DAYS and DAILY_DAYS of History.lua
+	recentDays  = 7
+	dailyDays   = 180
 )
 
 // Point is a recent scan {ts, min, median, qty} or a daily entry {ts, min, median, qty, scans}.
@@ -254,11 +256,21 @@ func rollup(points []Point) []Point {
 	return days
 }
 
-// Compact rolls the scans of the days before the recent window into daily entries and drops the daily entries older
+// recentDay is the first day kept as single scans: the days of the house's last recentScans scans, at most recentDays
+// days (today included), like the addon's recentDay.
+func (h *House) recentDay(now int64) int64 {
+	first := now/day - recentDays + 1
+	if n := len(h.Scans); n >= recentScans && len(h.Scans[n-recentScans]) > 0 {
+		first = max(first, h.Scans[n-recentScans][0]/day)
+	}
+	return first
+}
+
+// Compact rolls the scans of the days before the recent ones into daily entries and drops the daily entries older
 // than dailyDays, like the addon does at each scan (CompactHistory), so merged history doesn't bring back what the
 // addon already rolled up.
 func (h *House) Compact(now int64) {
-	cutoff := (now - recentWindow) / day
+	cutoff := h.recentDay(now)
 	oldest := now - dailyDays*day
 	for id, list := range h.Items {
 		var keep, old []Point

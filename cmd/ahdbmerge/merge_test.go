@@ -180,11 +180,15 @@ func TestMergeDailyLikeTheAddon(t *testing.T) {
 	}
 }
 
-// Same as the addon's CompactHistory: scans before the last 48h rolled into daily, daily over 180 days dropped.
+// Same as the addon's CompactHistory: scans of the days before the house's last 30 scans rolled into daily, daily over
+// 180 days dropped.
 func TestCompact(t *testing.T) {
 	now := int64(1000*day + 36000)
 	d3 := now - 3*day
 	h := newHouse()
+	for i := range recentScans {
+		h.Scans = append(h.Scans, Point{now - 2*day + int64(i)*60, 100, 10})
+	}
 	h.Items[1] = []Point{{d3, 100, 120, 4}, {d3 + 60, 0, 0, 0}, {d3 + 120, 90, 130, 5}, {now - 60, 80, 110, 2}}
 	h.Items[2] = []Point{{d3, 10, 20, 3}}
 	h.Daily[1] = []Point{{now - 200*day, 1, 2, 3, 1}, {now - 5*day, 50, 60, 1, 1}}
@@ -208,6 +212,22 @@ func TestCompact(t *testing.T) {
 	hs.Compact(now)
 	if hs.Lua("\n") != before {
 		t.Error("compacting again changed it")
+	}
+}
+
+// With fewer than 30 scans, the scans of the last 7 days (today included) stay single.
+func TestCompactFewScans(t *testing.T) {
+	now := int64(1000*day + 36000)
+	h := newHouse()
+	h.Scans = []Point{{now - 8*day, 100, 10}, {now - 5*day, 100, 10}}
+	h.Items[1] = []Point{{now - 8*day, 100, 120, 4}, {now - 6*day, 90, 130, 5}, {now - 7*day, 80, 110, 2}}
+	sortByTS(h.Items[1])
+	h.Compact(now)
+	if want := []Point{{now - 6*day, 90, 130, 5}}; !reflect.DeepEqual(h.Items[1], want) {
+		t.Errorf("recent = %v", h.Items[1])
+	}
+	if want := []Point{{now - 8*day, 100, 120, 4, 1}, {now - 7*day, 80, 110, 2, 1}}; !reflect.DeepEqual(h.Daily[1], want) {
+		t.Errorf("daily = %v", h.Daily[1])
 	}
 }
 

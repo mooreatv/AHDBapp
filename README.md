@@ -36,6 +36,10 @@ Only the price history part of each `Account\*\SavedVariables\AuctionDB.lua` is 
 as `AuctionDB.lua.bak`. `-n` shows what would be merged without writing. While playing, AHDB can also ask your
 other accounts' characters for prices directly (`/ahdb trust`).
 
+Like AHDB, `ahdbmerge` keeps each auction house's last 30 scans (whole days, up to 7 days) and rolls older ones into
+one price per day, kept 180 days. Update it when you update AHDB: an older one keeps fewer single scans, but loses
+nothing.
+
 ### Between your computers
 
 Keep `ahdbmerge` running on each computer. On one of them, the hub (allow it through the Windows firewall when

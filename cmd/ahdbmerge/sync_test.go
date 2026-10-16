@@ -85,7 +85,7 @@ func TestSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := <-done; err != nil {
+	if err = <-done; err != nil {
 		t.Fatalf("server: %v", err)
 	}
 	if rem.key != server.key || rem.name != hostname() {
@@ -112,7 +112,7 @@ func TestSync(t *testing.T) {
 	if err != nil || got != nil || ver2 != ver {
 		t.Errorf("check: %v, %v, %q", got, err, ver2)
 	}
-	if err := <-done; err != nil {
+	if err = <-done; err != nil {
 		t.Fatalf("server: %v", err)
 	}
 	// an old version: everything again
@@ -132,7 +132,7 @@ func TestSyncNotAllowed(t *testing.T) {
 	defer func() { stdin = bufio.NewReader(os.Stdin) }()
 	dirB := wtf(t, accountB)
 	addr, done := startServer(t, server, dirB, 1)
-	_, _, _, err := syncWith(client, addr, Houses{}, "")
+	_, _, _, err := syncWith(client, addr, Houses{}, "") //nolint:dogsled // only the error matters
 	if !errors.Is(err, errNotAllowed) {
 		t.Errorf("sync not refused: %v", err)
 	}

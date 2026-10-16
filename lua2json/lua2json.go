@@ -7,7 +7,8 @@
 // This is the conversion of my lua2json.sh:
 // Crude Lua table (wow saved variables) to Json "converter"
 //
-// go run lua2json < "C:\Program Files (x86)\World of Warcraft\_classic_\WTF\Account\$ACCT\SavedVariables\AuctionDB.lua" > auctiondb.json
+// go run lua2json > auctiondb.json < \
+//   "C:\Program Files (x86)\World of Warcraft\_classic_\WTF\Account\$ACCT\SavedVariables\AuctionDB.lua"
 //
 // If you don't like regular expressions, don't look further :)
 //
@@ -25,7 +26,7 @@
 // (e.g. a value containing " -- " or " = "), and lines that are just a value (list elements: strings, like a log line
 // with "12:34:56 ...: ...", numbers including negative ones, booleans, nil) are kept as json values.
 
-package lua2json // import "github.com/mooreatv/AHDBapp/lua2json"
+package lua2json
 
 import (
 	"bufio"
@@ -159,10 +160,7 @@ func Lua2Json(in io.Reader, out io.Writer, skipTop bool, bufSizeMb float64) {
 			}
 		}
 		if isClose {
-			// no trailing comma after the last element in json
-			if lpp := len(prevLine) - 1; lpp >= 0 && prevLine[lpp] == ',' {
-				prevLine = prevLine[0:lpp]
-			}
+			prevLine = strings.TrimSuffix(prevLine, ",") // no trailing comma after the last element in json
 			if top >= 0 {
 				if stack[top] == 'a' {
 					line = strings.Replace(line, "}", "]", 1)

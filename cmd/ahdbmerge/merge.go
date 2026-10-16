@@ -44,7 +44,7 @@ func newHouse() *House {
 
 func parsePoints(s string) ([]Point, error) {
 	var list []Point
-	for _, ps := range strings.Fields(s) {
+	for ps := range strings.FieldsSeq(s) {
 		var p Point
 		for f := range strings.SplitSeq(ps, ",") {
 			v, err := strconv.ParseInt(f, 10, 64)
@@ -211,7 +211,7 @@ func MergeDaily(a, b []Point) []Point {
 			byDay[d] = Point{max(q[0], p[0]), lowest(q[1], p[1]), med, qty, n}
 		}
 	}
-	sort.Slice(days, func(i, j int) bool { return days[i] < days[j] })
+	slices.Sort(days)
 	out := make([]Point, 0, len(days))
 	for _, d := range days {
 		out = append(out, byDay[d])
@@ -390,7 +390,7 @@ func sortedIDs(m map[int64][]Point) []int64 {
 	for id := range m {
 		ids = append(ids, id)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	slices.Sort(ids)
 	return ids
 }
 

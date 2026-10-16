@@ -40,8 +40,8 @@ type ScanEntry struct {
 
 // AHData is toplevel structure produced by ahdbSavedVars2Json.
 type AHData struct {
-	ItemDB map[string]interface{} `json:"itemDB_2"` // most values are strings except _formatVersion_ and _count_
-	Ah     []ScanEntry            `json:"ah"`
+	ItemDB map[string]any `json:"itemDB_2"` // most values are strings except _formatVersion_ and _count_
+	Ah     []ScanEntry    `json:"ah"`
 }
 
 // ItemEntry is what the raw link gets parsed into.
@@ -69,7 +69,8 @@ type AuctionEntry struct {
 }
 
 // Re for '5000,1,1,0,1,0|cffffffff|Hitem:14046::::::::5:::::::|h[Runecloth Bag]|h|r'.
-var itemRegex = regexp.MustCompile(`^([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+)(\|[^|]+\|Hitem:([0-9]+)[^|]+\|h\[([^]]+)\]\|h\|r)$`)
+var itemRegex = regexp.MustCompile(`^([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+)` +
+	`(\|[^|]+\|Hitem:([0-9]+)[^|]+\|h\[([^]]+)\]\|h\|r)$`)
 
 func extractItemInfo(id, olink string) *ItemEntry {
 	e := ItemEntry{ID: id, Olink: olink}
@@ -136,7 +137,8 @@ func ahDeserializeScanResult(stmt *sql.Stmt, scan ScanEntry, scanID int64) {
 				opCount++
 				// scanId, itemId, ts, seller, timeLeft, itemCount, minBid, buyout, curBid)
 				if stmt != nil {
-					_, err := stmt.Exec(scanID, item, scan.TS, seller, a.TimeLeft, a.ItemCount, a.MinBid, a.Buyout, a.CurBid)
+					_, err := stmt.ExecContext(context.Background(), scanID, item, scan.TS, seller,
+						a.TimeLeft, a.ItemCount, a.MinBid, a.Buyout, a.CurBid)
 					if err != nil {
 						log.Fatalf("Can't insert in DB op#%d for scanid %d: %v", opCount, scanID, err)
 					}
@@ -156,7 +158,7 @@ func SaveScans(db *sql.DB, scans []ScanEntry) {
 	var stmtMetaIns *sql.Stmt
 	var err error
 	if db != nil {
-		stmtMetaIns, err = db.Prepare(stmtMeta)
+		stmtMetaIns, err = db.PrepareContext(context.Background(), stmtMeta)
 		if err != nil {
 			log.Fatalf("Can't prepare statement for scanmeta insert: %v", err)
 		}
@@ -171,7 +173,7 @@ INSERT INTO auctions (scanId, itemId, ts, seller, timeLeft, itemCount, minBid, b
 			ahDeserializeScanResult(nil, entry, -1)
 			continue
 		}
-		res, err := stmtMetaIns.Exec(entry.Realm, entry.Faction, entry.Char, entry.TS)
+		res, err := stmtMetaIns.ExecContext(context.Background(), entry.Realm, entry.Faction, entry.Char, entry.TS)
 		if err != nil {
 			log.Infof("Skipping duplicate entry: %s %d : %v", entry.Char, entry.TS, err)
 			continue
@@ -185,7 +187,7 @@ INSERT INTO auctions (scanId, itemId, ts, seller, timeLeft, itemCount, minBid, b
 		if err != nil {
 			log.Fatalf("Can't start a transaction: %v", err)
 		}
-		stmtIns, err := tx.Prepare(stmtAuction)
+		stmtIns, err := tx.PrepareContext(context.Background(), stmtAuction)
 		if err != nil {
 			log.Fatalf("Can't prepare statement for insert: %v", err)
 		}
@@ -198,13 +200,13 @@ INSERT INTO auctions (scanId, itemId, ts, seller, timeLeft, itemCount, minBid, b
 }
 
 // SaveItems exports the items to the DB.
-func SaveItems(db *sql.DB, items map[string]interface{}) {
+func SaveItems(db *sql.DB, items map[string]any) {
 	count := -1
 	var stmtIns *sql.Stmt
 	var tx *sql.Tx
 	var err error
 	if db != nil {
-		err = db.QueryRow("select count(*) from items").Scan(&count)
+		err = db.QueryRowContext(context.Background(), "select count(*) from items").Scan(&count)
 		if err != nil {
 			log.Fatalf("Can't count items: %v", err)
 		}
@@ -233,11 +235,11 @@ func SaveItems(db *sql.DB, items map[string]interface{}) {
 				minlevel=VALUES(minlevel),
 				link=VALUES(link),
 				olink=VALUES(olink)`
-		stmtIns, err = tx.Prepare(stmt)
+		stmtIns, err = tx.PrepareContext(context.Background(), stmt)
 		if err != nil {
 			log.Fatalf("Can't prepare statement for insert: %v", err)
 		}
-		defer stmtIns.Close()
+		// stmtIns is closed by the tx commit
 	}
 	n := 0
 	bytes := 0
@@ -259,7 +261,8 @@ func SaveItems(db *sql.DB, items map[string]interface{}) {
 				continue
 			}
 			e := extractItemInfo(k, v)
-			_, err = stmtIns.Exec(e.ID, e.ShortID, e.Name, e.SellPrice, e.StackCount, e.ClassID, e.SubClassID, e.Rarity, e.MinLevel, e.Link, e.Olink)
+			_, err = stmtIns.ExecContext(context.Background(), e.ID, e.ShortID, e.Name, e.SellPrice, e.StackCount,
+				e.ClassID, e.SubClassID, e.Rarity, e.MinLevel, e.Link, e.Olink)
 			if err != nil {
 				log.Fatalf("Can't insert in DB: %v", err)
 			}
@@ -272,7 +275,7 @@ func SaveItems(db *sql.DB, items map[string]interface{}) {
 		}
 		elapsed := time.Since(start)
 		log.Infof("Inserted/updated %d items, %.2f Mbytes in MySQL DB in %s", n, float64(bytes)/1024./1024., elapsed)
-		if err = db.QueryRow("select count(*) from items").Scan(&count); err != nil {
+		if err = db.QueryRowContext(context.Background(), "select count(*) from items").Scan(&count); err != nil {
 			log.Fatalf("Can't count items after insert: %v", err)
 		}
 		log.Infof("ItemDB now has %d items", count)

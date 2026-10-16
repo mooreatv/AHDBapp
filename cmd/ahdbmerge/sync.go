@@ -3,13 +3,14 @@ package main
 // Syncing with the ahdbmerge -serve of another computer. TLS with a key per computer (made on first use, kept in the
 // user config folder); each side confirms the other's key the first time (like ssh), then remembers it.
 //
-// Messages are gzipped JSON, in that order: server name and version, client name and version and the server's history version it has if
-// nothing is new on its side (server confirms, or says it's still that version: done), client price history, merged
-// price history and its version back.
+// Messages are gzipped JSON, in that order: server name and version, client name and version and the server's history
+// version it has if nothing is new on its side (server confirms, or says it's still that version: done), client price
+// history, merged price history and its version back.
 
 import (
 	"bufio"
 	"compress/gzip"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -125,18 +126,23 @@ func short(fp string) string {
 	return strings.Join(parts, "-")
 }
 
+// newKey makes a key and saves it in path.
+func newKey(path string) (ed25519.PrivateKey, error) {
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+	return key, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600)
+}
+
 func loadKey(path string) (ed25519.PrivateKey, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		_, key, err := ed25519.GenerateKey(rand.Reader)
-		if err != nil {
-			return nil, err
-		}
-		der, err := x509.MarshalPKCS8PrivateKey(key)
-		if err != nil {
-			return nil, err
-		}
-		return key, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600)
+		return newKey(path)
 	}
 	if err != nil {
 		return nil, err
@@ -231,8 +237,11 @@ func (id *identity) allow(fp, question string, name string) bool {
 }
 
 func (id *identity) save() {
-	b, _ := json.MarshalIndent(id.trusted, "", "  ")
-	if err := os.WriteFile(id.file, b, 0o600); err != nil {
+	b, err := json.MarshalIndent(id.trusted, "", "  ")
+	if err == nil {
+		err = os.WriteFile(id.file, b, 0o600)
+	}
+	if err != nil {
 		log.Errf("Saving %s: %v", id.file, err)
 	}
 }
@@ -247,8 +256,8 @@ func (id *identity) tlsConfig() *tls.Config {
 	}
 }
 
-func peerKey(c *tls.Conn) (string, error) {
-	if err := c.Handshake(); err != nil {
+func peerKey(ctx context.Context, c *tls.Conn) (string, error) {
+	if err := c.HandshakeContext(ctx); err != nil {
 		return "", err
 	}
 	certs := c.ConnectionState().PeerCertificates
@@ -302,14 +311,17 @@ var (
 // history if the server still has that version.
 func syncWith(id *identity, addr string, local Houses, have string) (Houses, remote, string, error) {
 	var rem remote
-	d := &net.Dialer{Timeout: 10 * time.Second}
-	conn, err := tls.DialWithDialer(d, "tcp", addr, id.tlsConfig())
+	ctx, cancel := context.WithTimeout(context.Background(), syncTimeout)
+	defer cancel()
+	d := &tls.Dialer{NetDialer: &net.Dialer{Timeout: 10 * time.Second}, Config: id.tlsConfig()}
+	nc, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, rem, "", err
 	}
+	conn := nc.(*tls.Conn)
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(syncTimeout))
-	if rem.key, err = peerKey(conn); err != nil {
+	if rem.key, err = peerKey(ctx, conn); err != nil {
 		return nil, rem, "", err
 	}
 	r := bufio.NewReader(conn)
@@ -325,7 +337,7 @@ func syncWith(id *identity, addr string, local Houses, have string) (Houses, rem
 		return nil, rem, "", errNotAllowed
 	}
 	checkRelease(rem.name, m.Release)
-	if err := send(conn, &message{Name: hostname(), Release: cli.ShortVersion, DryRun: *dryRun, Have: have}); err != nil {
+	if err = send(conn, &message{Name: hostname(), Release: cli.ShortVersion, DryRun: *dryRun, Have: have}); err != nil {
 		return nil, rem, "", err
 	}
 	waiting := time.AfterFunc(2*time.Second, func() {
@@ -341,7 +353,7 @@ func syncWith(id *identity, addr string, local Houses, have string) (Houses, rem
 	case m.UpToDate:
 		return nil, rem, m.Version, nil
 	}
-	if err := send(conn, &message{Houses: local}); err != nil {
+	if err = send(conn, &message{Houses: local}); err != nil {
 		return nil, rem, "", err
 	}
 	if m, err = receive(r, maxDataSize); err != nil {
@@ -364,12 +376,14 @@ type answerer interface {
 
 // answer is the server side of syncWith.
 func answer(id *identity, conn *tls.Conn, srv answerer) error {
+	ctx, cancel := context.WithTimeout(context.Background(), syncTimeout)
+	defer cancel()
 	_ = conn.SetDeadline(time.Now().Add(syncTimeout))
-	key, err := peerKey(conn)
+	key, err := peerKey(ctx, conn)
 	if err != nil {
 		return err
 	}
-	if err := send(conn, &message{Name: hostname(), Release: cli.ShortVersion}); err != nil {
+	if err = send(conn, &message{Name: hostname(), Release: cli.ShortVersion}); err != nil {
 		return err
 	}
 	r := bufio.NewReader(conn)
@@ -387,13 +401,13 @@ func answer(id *identity, conn *tls.Conn, srv answerer) error {
 	if v := srv.version(); m.Have != "" && m.Have == v {
 		return send(conn, &message{UpToDate: true, Version: v})
 	}
-	if err := send(conn, &message{}); err != nil {
+	if err = send(conn, &message{}); err != nil {
 		return err
 	}
 	if m, err = receive(r, maxDataSize); err != nil {
 		return err
 	}
-	if err := m.Houses.validate(); err != nil {
+	if err = m.Houses.validate(); err != nil {
 		_ = send(conn, &message{Error: err.Error()})
 		return err
 	}

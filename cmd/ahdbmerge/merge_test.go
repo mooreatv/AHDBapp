@@ -253,6 +253,29 @@ func TestAddedCompacted(t *testing.T) {
 	}
 }
 
+// A scan added to a full scans list (oldest dropped) is still reported as a new scan.
+func TestAddedFullScans(t *testing.T) {
+	now := int64(1000*day + 36000)
+	h := newHouse()
+	for i := range maxScans {
+		h.Scans = append(h.Scans, Point{now - int64(maxScans-i)*60, 10, 5})
+	}
+	old := Houses{"Horde": h}
+	merged := Houses{}
+	merged.Merge(old)
+	o := newHouse()
+	o.Items[1] = []Point{{now - 30, 70, 100, 1}}
+	o.Scans = []Point{{now - 30, 1, 1}}
+	merged.Merge(Houses{"Horde": o})
+	merged.Compact(now)
+	if len(merged["Horde"].Scans) != maxScans {
+		t.Fatalf("%d scans", len(merged["Horde"].Scans))
+	}
+	if got, want := old.Added(merged, now), "Horde AH: +1 items, +1 recent scan prices, +0 daily, +1 scans"; got != want {
+		t.Errorf("Added = %q, want %q", got, want)
+	}
+}
+
 func TestWowExe(t *testing.T) {
 	for line, want := range map[string]bool{
 		`"WowB.exe","1","Console","1","1 K"`:       true,

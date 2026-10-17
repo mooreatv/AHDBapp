@@ -350,6 +350,26 @@ func (h *House) Counts() (items, recent, daily, scans int) {
 	return len(ids), recent, daily, len(h.Scans)
 }
 
+// newScans counts the scans of merged that old doesn't have (by ts): the scans list only keeps the last maxScans, so
+// its length doesn't grow anymore once full.
+func newScans(old, merged *House) int {
+	seen := map[int64]bool{}
+	if old != nil {
+		for _, s := range old.Scans {
+			if len(s) > 0 {
+				seen[s[0]] = true
+			}
+		}
+	}
+	n := 0
+	for _, s := range merged.Scans {
+		if len(s) > 0 && !seen[s[0]] {
+			n++
+		}
+	}
+	return n
+}
+
 // Added describes what merged (compacted at now) has more than hs, per auction house, e.g. "Horde AH: +3 items, +40
 // recent scan prices, +2 daily, +1 scans"; "" if it's only hs compacted. hs is compared compacted at now too, so the
 // scans rolled into daily entries since it was last compacted don't count as removed scans and added days.
@@ -368,16 +388,18 @@ func (hs Houses) Added(merged Houses, now int64) string {
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		var items, recent, daily, scans int
-		if h := hs[n]; h != nil {
-			items, recent, daily, scans = h.Counts()
+		var items, recent, daily int
+		h := hs[n]
+		if h != nil {
+			items, recent, daily, _ = h.Counts()
 		}
-		mi, mr, md, ms := merged[n].Counts()
-		if mi == items && mr == recent && md == daily && ms == scans {
+		mi, mr, md, _ := merged[n].Counts()
+		scans := newScans(h, merged[n])
+		if mi == items && mr == recent && md == daily && scans == 0 {
 			continue
 		}
 		parts = append(parts, fmt.Sprintf("%s AH: %+d items, %+d recent scan prices, %+d daily, %+d scans", n,
-			mi-items, mr-recent, md-daily, ms-scans))
+			mi-items, mr-recent, md-daily, scans))
 	}
 	if len(parts) == 0 {
 		return "same days combined"

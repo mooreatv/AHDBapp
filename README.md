@@ -29,7 +29,7 @@ go install github.com/mooreatv/AHDBapp/cmd/ahdbmerge@latest
 With the game closed:
 
 ```
-ahdbmerge "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
+ahdbmerge "C:\Program Files (x86)\World of Warcraft\_forever_\WTF"
 ```
 
 Only the price history part of each `Account\*\SavedVariables\AuctionDB.lua` is rewritten; the previous file is kept
@@ -46,13 +46,13 @@ Keep `ahdbmerge` running on each computer. On one of them, the hub (allow it thr
 asked):
 
 ```
-ahdbmerge -serve "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
+ahdbmerge -serve "C:\Program Files (x86)\World of Warcraft\_forever_\WTF"
 ```
 
 and on the other(s), with the hub's name or IP address:
 
 ```
-ahdbmerge -sync HUB "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
+ahdbmerge -sync HUB "C:\Program Files (x86)\World of Warcraft\_forever_\WTF"
 ```
 
 The others send the hub what's new as soon as WoW saves their files (logout, `/reload`, exit), and check every 15

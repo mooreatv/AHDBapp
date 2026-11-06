@@ -7,7 +7,7 @@
 // ahdbmerge merges the AHDB (AuctionDB, WoW Forever edition) price history of all the WoW accounts of a game
 // install, so each account's characters see the prices any of them scanned. Run it with the game closed:
 //
-//	ahdbmerge "C:\Program Files (x86)\World of Warcraft\_classic_beta_\WTF"
+//	ahdbmerge "C:\Program Files (x86)\World of Warcraft\_forever_\WTF"
 //
 // Every Account\*\SavedVariables\AuctionDB.lua gets the merged price history (only that part of the file is
 // rewritten, the previous file is kept as AuctionDB.lua.bak).

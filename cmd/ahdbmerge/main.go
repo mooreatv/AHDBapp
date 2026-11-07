@@ -182,8 +182,14 @@ func writeLocal(files []*savedFile, merged Houses, dry bool) {
 		}
 		text := f.text[:f.start] + merged.Lua(nl) + f.text[f.end:]
 		added := f.houses.Added(merged, now())
-		if added == "" {
+		pre := f.houses.PreLaunch()
+		switch {
+		case added == "" && pre > 0:
+			added = fmt.Sprintf("%d prices and scans from before the launch removed", pre)
+		case added == "":
 			added = "scans of older days rolled into daily prices"
+		case pre > 0:
+			added += fmt.Sprintf("; %d prices and scans from before the launch removed", pre)
 		}
 		if dry {
 			log.Infof("%s: would be updated: %s", f.path, added)
@@ -208,6 +214,9 @@ func main() {
 	cli.MinArgs = 1
 	cli.Main()
 	dir := flag.Arg(0)
+	if abs, err := filepath.Abs(dir); err == nil && strings.Contains(strings.ToLower(abs), "_forever_") {
+		launch = foreverLaunch
+	}
 	if *once && (*syncAddr == "" || *serveFlag) {
 		log.Fatalf("-once goes with -sync, without -serve")
 	}
@@ -220,8 +229,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
-	if len(files) < 2 {
-		log.Infof("Nothing to merge: %d file(s) with price history", len(files))
+	if len(files) == 0 {
+		log.Infof("Nothing to merge: no file with price history")
 		return
 	}
 	writeLocal(files, merged, *dryRun)

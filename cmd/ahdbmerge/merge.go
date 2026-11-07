@@ -8,7 +8,7 @@ package main
 // min, median of the entry with more scans, scan weighted quantity, scans added; but an entry that is the other one
 // plus later scans replaces it, not to count scans twice), then compacted like the addon does
 // (scans of days before the house's last 30 scans or the last 7 days rolled into daily entries, those older than 180
-// days dropped).
+// days dropped). The history from before the WoW Forever launch is dropped.
 
 import (
 	"fmt"
@@ -26,6 +26,19 @@ const (
 	recentDays  = 7
 	dailyDays   = 180
 )
+
+// foreverLaunch: WoW Forever launched 2026-11-04, the stress test (same _forever_ folder) ended before 2026-11-01 00:00
+// UTC (a day start, LAUNCH of History.lua).
+const foreverLaunch = 1793491200
+
+// launch: the history from before is dropped at each Compact, so it doesn't come back from files or computers not
+// cleaned yet. foreverLaunch for a _forever_ folder, else 0 (nothing dropped).
+var launch int64
+
+// sinceLaunch is list without the points from before launch.
+func sinceLaunch(list []Point) []Point {
+	return slices.DeleteFunc(slices.Clone(list), func(p Point) bool { return len(p) > 0 && p[0] < launch })
+}
 
 // Point is a recent scan {ts, min, median, qty} or a daily entry {ts, min, median, qty, scans}.
 type Point []int64
@@ -259,7 +272,7 @@ func rollup(points []Point) []Point {
 // recentDay is the first day kept as single scans: the days of the house's last recentScans scans, at most recentDays
 // days (today included), like the addon's recentDay.
 func (h *House) recentDay(now int64) int64 {
-	first := now/day - recentDays + 1
+	first := max(now/day-recentDays+1, launch/day)
 	if n := len(h.Scans); n >= recentScans && len(h.Scans[n-recentScans]) > 0 {
 		first = max(first, h.Scans[n-recentScans][0]/day)
 	}
@@ -268,10 +281,12 @@ func (h *House) recentDay(now int64) int64 {
 
 // Compact rolls the scans of the days before the recent ones into daily entries and drops the daily entries older
 // than dailyDays, like the addon does at each scan (CompactHistory), so merged history doesn't bring back what the
-// addon already rolled up.
+// addon already rolled up. The history from before launch is dropped (launch is a day start: older scans are rolled
+// into daily entries of the days before it, then dropped with them).
 func (h *House) Compact(now int64) {
+	h.Scans = sinceLaunch(h.Scans)
 	cutoff := h.recentDay(now)
-	oldest := now - dailyDays*day
+	oldest := max(now-dailyDays*day, launch)
 	for id, list := range h.Items {
 		var keep, old []Point
 		for _, p := range list {
@@ -308,6 +323,24 @@ func (hs Houses) Compact(now int64) {
 	for _, h := range hs {
 		h.Compact(now)
 	}
+}
+
+// PreLaunch counts the recent scan prices, daily entries and scans from before launch.
+func (hs Houses) PreLaunch() int {
+	n := 0
+	count := func(list []Point) {
+		n += len(list) - len(sinceLaunch(list))
+	}
+	for _, h := range hs {
+		for _, l := range h.Items {
+			count(l)
+		}
+		for _, l := range h.Daily {
+			count(l)
+		}
+		count(h.Scans)
+	}
+	return n
 }
 
 // Merge adds the history of other into h.

@@ -131,11 +131,42 @@ func (s *server) files() {
 		log.Infof("New from the files here: %s", added)
 		signal(s.kick)
 	}
-	if s.wow == "" && !*dryRun {
-		state, _ := s.snapshot()
+	if *dryRun {
+		return
+	}
+	state, _ := s.snapshot()
+	if s.wow == "" {
 		writeLocal(files, state, false)
+	} else if pending(files, state) {
+		log.Infof("WoW is running (%s): new data NOT written to the files here yet, will be when it exits", s.wow)
 	}
 	s.filesChanged() // not our own writes
+}
+
+// pending returns whether some files don't have the state yet.
+func pending(files []*savedFile, state Houses) bool {
+	l := state.Lua("\n")
+	for _, f := range files {
+		if f.houses.Lua("\n") != l {
+			return true
+		}
+	}
+	return false
+}
+
+// checkWow updates s.wow, logs when WoW starts or exits, returns whether it exited.
+func (s *server) checkWow() bool {
+	exe := wowRunning()
+	was := s.wow
+	s.wow = exe
+	switch {
+	case was == "" && exe != "":
+		log.Infof("WoW started (%s): writing the files here is paused until it exits", exe)
+	case was != "" && exe == "":
+		log.Infof("WoW (%s) exited: writing the files here resumed", was)
+		return true
+	}
+	return false
 }
 
 func (s *server) watchFiles() {
@@ -143,14 +174,12 @@ func (s *server) watchFiles() {
 	for {
 		select {
 		case <-tick.C:
-			exe := wowRunning()
-			exited := s.wow != "" && exe == ""
-			s.wow = exe
+			exited := s.checkWow()
 			if s.filesChanged() || exited {
 				s.files()
 			}
 		case <-s.write:
-			s.wow = wowRunning()
+			s.checkWow()
 			s.files()
 		}
 	}
@@ -237,7 +266,9 @@ func (s *server) run(listen bool) {
 	}
 	s.wow = wowRunning()
 	if s.wow != "" {
-		log.Infof("WoW is running (%s): the files here get updated when it exits", s.wow)
+		log.Infof("WoW is running (%s): writing the files here is paused until it exits", s.wow)
+	} else {
+		log.Infof("WoW isn't running: the files here get written as new data comes in")
 	}
 	s.files()
 	go s.watchFiles()

@@ -38,7 +38,8 @@ other accounts' characters for prices directly (`/ahdb trust`).
 
 Like AHDB, `ahdbmerge` keeps each auction house's last 30 scans (whole days, up to 7 days) and rolls older ones into
 one price per day, kept 180 days. Update it when you update AHDB: an older one keeps fewer single scans, but loses
-nothing.
+nothing. In a `_forever_` folder, prices from before November 1, 2026 (the stress test before the WoW Forever launch) are
+removed.
 
 ### Between your computers
 

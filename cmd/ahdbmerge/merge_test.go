@@ -180,6 +180,43 @@ func TestMergeDailyLikeTheAddon(t *testing.T) {
 	}
 }
 
+// The history from before the launch is dropped, the rest kept as is.
+func TestCompactDropsPreLaunch(t *testing.T) {
+	launch = 1000 * day
+	t.Cleanup(func() { launch = 0 })
+	now := launch + 3*day + 36000
+	pre := launch - 5*day // stress test
+	h := newHouse()
+	for i := range recentScans {
+		h.Scans = append(h.Scans, Point{pre + int64(i)*60, 100, 10})
+	}
+	h.Scans = append(h.Scans, Point{now - 60, 100, 10})
+	h.Items[1] = []Point{{pre, 100, 120, 4}, {launch - 1, 90, 130, 5}, {launch, 85, 120, 3}, {now - 60, 80, 110, 2}}
+	h.Items[2] = []Point{{pre, 10, 20, 3}}
+	h.Daily[1] = []Point{{pre - 3*day, 50, 60, 1, 1}}
+	h.Daily[2] = []Point{{pre - 3*day, 1, 2, 3, 1}}
+	other := newHouse()
+	other.Daily[1] = []Point{{launch - day + 3600, 50, 60, 1, 1}}
+	hs := Houses{"Horde": h}
+	hs.Merge(Houses{"Horde": other})
+	if n := hs.PreLaunch(); n != 36 { // 30 scans, 3 recent, 3 daily
+		t.Errorf("PreLaunch() = %d", n)
+	}
+	hs.Compact(now)
+	if want := []Point{{now - 60, 100, 10}}; !reflect.DeepEqual(h.Scans, want) {
+		t.Errorf("scans = %v", h.Scans)
+	}
+	if want := []Point{{launch, 85, 120, 3}, {now - 60, 80, 110, 2}}; !reflect.DeepEqual(h.Items[1], want) {
+		t.Errorf("recent = %v", h.Items[1])
+	}
+	if len(h.Daily) != 0 || len(h.Items) != 1 {
+		t.Errorf("items = %v, daily = %v", h.Items, h.Daily)
+	}
+	if n := hs.PreLaunch(); n != 0 {
+		t.Errorf("PreLaunch() after = %d", n)
+	}
+}
+
 // Same as the addon's CompactHistory: scans of the days before the house's last 30 scans rolled into daily, daily over
 // 180 days dropped.
 func TestCompact(t *testing.T) {

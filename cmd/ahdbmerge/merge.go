@@ -8,10 +8,12 @@ package main
 // min, median of the entry with more scans, scan weighted quantity, scans added; but an entry that is the other one
 // plus later scans replaces it, not to count scans twice), then compacted like the addon does
 // (scans of days before the house's last 30 scans or the last 7 days rolled into daily entries, those older than 180
-// days dropped). The history from before the WoW Forever launch is dropped.
+// days dropped). The history from before the WoW Forever launch is dropped. Auction houses are merged by name, which
+// on WoW Forever includes the region and ruleset (see Houses).
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"sort"
@@ -50,8 +52,41 @@ type House struct {
 	Scans []Point
 }
 
-// Houses by name ("Alliance", "Horde", "Neutral").
+// Houses by name, as AHDB saves them (ADB:HouseKey): "Alliance", "Horde", "Neutral", on WoW Forever after the region
+// and ruleset, whose auction houses are separate: "na-forever-rp Alliance", "eu-forever-pve Neutral"...
 type Houses map[string]*House
+
+// forever: a _forever_ folder, where the houses without region and ruleset are history from before AHDB saved it
+// per ruleset (up to v2.6.1), all rulesets mixed.
+var forever bool
+
+// splitLegacy returns hs without the houses from before the rulesets, and those: they aren't merged or sent anywhere
+// (so they can't come back in accounts that already moved theirs), AHDB moves them to a ruleset at the account's next
+// login.
+func splitLegacy(hs Houses) (Houses, Houses) {
+	if !forever || hs == nil {
+		return hs, nil
+	}
+	tagged, legacy := Houses{}, Houses{}
+	for name, h := range hs {
+		if strings.Contains(name, " ") {
+			tagged[name] = h
+		} else {
+			legacy[name] = h
+		}
+	}
+	return tagged, legacy
+}
+
+// with returns hs plus the houses of other.
+func (hs Houses) with(other Houses) Houses {
+	if len(other) == 0 {
+		return hs
+	}
+	out := maps.Clone(hs)
+	maps.Copy(out, other)
+	return out
+}
 
 func newHouse() *House {
 	return &House{Items: map[int64][]Point{}, Daily: map[int64][]Point{}}

@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"crypto/tls"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -146,7 +148,74 @@ func TestValidate(t *testing.T) {
 	if err := (Houses{`x"]=os.exit()--`: newHouse()}).validate(); err == nil {
 		t.Error("bad house name accepted")
 	}
-	if err := (Houses{"Alliance": &House{}}).validate(); err != nil {
-		t.Error(err)
+	for _, name := range []string{"Alliance", "na-forever-rp-pvp Alliance", "eu-forever-pve Neutral"} {
+		if err := (Houses{name: &House{}}).validate(); err != nil {
+			t.Error(err)
+		}
+	}
+	for _, name := range []string{"na-forever-rp  Alliance", "RP Alliance", "na-forever-rp Alliance x", "forever Horde"} {
+		if err := (Houses{name: newHouse()}).validate(); err == nil {
+			t.Errorf("bad house name %q accepted", name)
+		}
+	}
+}
+
+// In a _forever_ folder the houses without region and ruleset (from before AHDB saved them per ruleset) stay in their
+// file, not merged; the others are merged by region, ruleset and faction.
+func TestLegacyHouses(t *testing.T) {
+	fixedNow(t)
+	forever = true
+	t.Cleanup(func() { forever = false })
+	tagged := strings.NewReplacer(`["Alliance"]`, `["na-forever-rp Alliance"]`, `["Horde"]`,
+		`["na-forever-pve Horde"]`).Replace(accountB)
+	dir := wtf(t, accountA)
+	for name, text := range map[string]string{
+		"TAGGED": tagged,
+		"PVE":    strings.ReplaceAll(accountA, `["Alliance"] = {`, `["na-forever-pve Alliance"] = {`),
+	} {
+		sv := filepath.Join(dir, "Account", name, "SavedVariables")
+		if err := os.MkdirAll(sv, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sv, "AuctionDB.lua"), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, merged, err := loadLocal(dir)
+	if err != nil || len(files) != 3 {
+		t.Fatal(files, err)
+	}
+	if got := slices.Sorted(maps.Keys(merged)); !reflect.DeepEqual(got,
+		[]string{"na-forever-pve Alliance", "na-forever-pve Horde", "na-forever-rp Alliance"}) {
+		t.Fatalf("merged houses = %v", got)
+	}
+	// same faction, two rulesets: not combined
+	if n := len(merged["na-forever-rp Alliance"].Items[2589]); n != 2 {
+		t.Errorf("%d rp prices, want 2", n)
+	}
+	if n := len(merged["na-forever-pve Alliance"].Items[2589]); n != 2 {
+		t.Errorf("%d pve prices, want 2", n)
+	}
+	writeLocal(files, merged, false)
+	legacy, _ := read(t, accountA)
+	for _, acc := range []string{"ACC", "TAGGED", "PVE"} {
+		f, err := readFile(filepath.Join(dir, "Account", acc, "SavedVariables", "AuctionDB.lua"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.houses.Lua("\n") != merged.Lua("\n") {
+			t.Errorf("%s: merged houses not written", acc)
+		}
+		switch {
+		case acc == "ACC" && !reflect.DeepEqual(f.legacy, legacy):
+			t.Errorf("%s: legacy houses changed: %v", acc, f.legacy)
+		case acc != "ACC" && len(f.legacy) != 0:
+			t.Errorf("%s: got legacy houses %v", acc, f.legacy)
+		}
+	}
+	// from an older ahdbmerge
+	got := received("old", Houses{"Alliance": newHouse(), "na-forever-rp Alliance": newHouse()})
+	if len(got) != 1 || got["na-forever-rp Alliance"] == nil {
+		t.Errorf("received = %v", got)
 	}
 }

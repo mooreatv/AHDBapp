@@ -24,11 +24,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"math/big"
 	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,7 +83,19 @@ func receive(r *bufio.Reader, limit int64) (*message, error) {
 	return m, nil
 }
 
-var houseName = regexp.MustCompile(`^[A-Za-z]+$`)
+// "Alliance", or with WoW Forever's region and ruleset "na-forever-rp-pvp Alliance" (see Houses).
+var houseName = regexp.MustCompile(`^([a-z]+(-[a-z]+)+ )?[A-Za-z]+$`)
+
+// received is what another computer sent, without the houses from before the rulesets (an ahdbmerge older than them
+// still merges and sends those).
+func received(from string, hs Houses) Houses {
+	hs, legacy := splitLegacy(hs)
+	if len(legacy) > 0 {
+		log.Warnf("%s sent price history from before AHDB saved it per ruleset (%s AH): ignored, update ahdbmerge and "+
+			"AHDB there", from, strings.Join(slices.Sorted(maps.Keys(legacy)), ", "))
+	}
+	return hs
+}
 
 // validate checks what the other side sent can be written as Lua.
 func (hs Houses) validate() error {
@@ -365,7 +379,10 @@ func syncWith(id *identity, addr string, local Houses, have string) (Houses, rem
 	if m.Houses == nil {
 		m.Houses = Houses{}
 	}
-	return m.Houses, rem, m.Version, m.Houses.validate()
+	if err = m.Houses.validate(); err != nil {
+		return nil, rem, "", err
+	}
+	return received(rem.name, m.Houses), rem, m.Version, nil
 }
 
 // answerer is the server side of the history: its version, and merging what another computer sends.
@@ -411,6 +428,6 @@ func answer(id *identity, conn *tls.Conn, srv answerer) error {
 		_ = send(conn, &message{Error: err.Error()})
 		return err
 	}
-	merged, v := srv.merge(rem, m.Houses, dry)
+	merged, v := srv.merge(rem, received(rem.name, m.Houses), dry)
 	return send(conn, &message{Houses: merged, Version: v})
 }

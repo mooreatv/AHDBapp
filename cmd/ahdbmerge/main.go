@@ -54,7 +54,8 @@ type savedFile struct {
 	path   string
 	text   string
 	houses Houses
-	start  int // byte span of the houses table in text
+	legacy Houses // from before the rulesets (see splitLegacy), kept as is in this file
+	start  int    // byte span of the houses table in text
 	end    int
 }
 
@@ -122,7 +123,8 @@ func readFile(path string) (*savedFile, error) {
 	if !ok {
 		return f, nil
 	}
-	f.houses, err = ReadHouses(ht)
+	hs, err := ReadHouses(ht)
+	f.houses, f.legacy = splitLegacy(hs)
 	f.start, f.end = e.Start, e.End
 	return f, err
 }
@@ -161,6 +163,11 @@ func loadLocal(dir string) ([]*savedFile, Houses, error) {
 			continue
 		}
 		logHouses(p, f.houses)
+		if len(f.legacy) > 0 {
+			detailf("%s: %s AH price history from before AHDB saved it per ruleset: not merged, left as is until a "+
+				"character of that account logs in with AHDB v2.7.0 or later", p,
+				strings.Join(slices.Sorted(maps.Keys(f.legacy)), ", "))
+		}
 		merged.Merge(f.houses)
 		files = append(files, f)
 	}
@@ -180,7 +187,7 @@ func writeLocal(files []*savedFile, merged Houses, dry bool) {
 			detailf("%s: already up to date", f.path)
 			continue
 		}
-		text := f.text[:f.start] + merged.Lua(nl) + f.text[f.end:]
+		text := f.text[:f.start] + merged.with(f.legacy).Lua(nl) + f.text[f.end:]
 		added := f.houses.Added(merged, now())
 		pre := f.houses.PreLaunch()
 		switch {
@@ -216,6 +223,7 @@ func main() {
 	dir := flag.Arg(0)
 	if abs, err := filepath.Abs(dir); err == nil && strings.Contains(strings.ToLower(abs), "_forever_") {
 		launch = foreverLaunch
+		forever = true
 	}
 	if *once && (*syncAddr == "" || *serveFlag) {
 		log.Fatalf("-once goes with -sync, without -serve")

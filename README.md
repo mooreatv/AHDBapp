@@ -41,6 +41,12 @@ one price per day, kept 180 days. Update it when you update AHDB: an older one k
 nothing. In a `_forever_` folder, prices from before November 1, 2026 (the stress test before the WoW Forever launch) are
 removed.
 
+WoW Forever's auction houses are per region, ruleset (Normal, PvP, RP, RP-PvP, Hardcore) and faction, and so is the
+price history since AHDB v2.6.2 (`na-forever-rp Alliance`...): prices of different rulesets are never merged. The
+history saved before that, all rulesets together, isn't merged anymore: it stays in its account's file until a
+character of that account logs in with AHDB v2.6.2 or later, which moves it to that character's ruleset. Update AHDB
+and `ahdbmerge` on all your computers together: an older `ahdbmerge` refuses to sync the new history.
+
 ### Between your computers
 
 Keep `ahdbmerge` running on each computer. On one of them, the hub (allow it through the Windows firewall when

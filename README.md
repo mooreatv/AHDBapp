@@ -42,9 +42,9 @@ nothing. In a `_forever_` folder, prices from before November 1, 2026 (the stres
 removed.
 
 WoW Forever's auction houses are per region, ruleset (Normal, PvP, RP, RP-PvP, Hardcore) and faction, and so is the
-price history since AHDB v2.6.2 (`na-forever-rp Alliance`...): prices of different rulesets are never merged. The
+price history since AHDB v2.7.0 (`na-forever-rp Alliance`...): prices of different rulesets are never merged. The
 history saved before that, all rulesets together, isn't merged anymore: it stays in its account's file until a
-character of that account logs in with AHDB v2.6.2 or later, which moves it to that character's ruleset. Update AHDB
+character of that account logs in with AHDB v2.7.0 or later, which moves it to that character's ruleset. Update AHDB
 and `ahdbmerge` on all your computers together: an older `ahdbmerge` refuses to sync the new history.
 
 ### Between your computers

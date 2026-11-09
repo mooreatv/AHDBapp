@@ -165,7 +165,7 @@ func loadLocal(dir string) ([]*savedFile, Houses, error) {
 		logHouses(p, f.houses)
 		if len(f.legacy) > 0 {
 			detailf("%s: %s AH price history from before AHDB saved it per ruleset: not merged, left as is until a "+
-				"character of that account logs in with AHDB v2.6.2 or later", p,
+				"character of that account logs in with AHDB v2.7.0 or later", p,
 				strings.Join(slices.Sorted(maps.Keys(f.legacy)), ", "))
 		}
 		merged.Merge(f.houses)

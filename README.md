@@ -47,6 +47,11 @@ history saved before that, all rulesets together, isn't merged anymore: it stays
 character of that account logs in with AHDB v2.7.0 or later, which moves it to that character's ruleset. Update AHDB
 and `ahdbmerge` on all your computers together: an older `ahdbmerge` refuses to sync the new history.
 
+AHDB v2.8.0 and later also keep the prices of each suffix of random suffix gear ("of the Monkey"...), merged like the
+rest by `ahdbmerge` v0.4.0 and later. Older versions drop them from the files they write; a newer one still syncs
+with them, without the prices per suffix (which stay on the computers that have them): update everywhere to share
+them.
+
 ### Between your computers
 
 Keep `ahdbmerge` running on each computer. On one of them, the hub (allow it through the Windows firewall when

@@ -3,9 +3,9 @@ package main
 // Syncing with the ahdbmerge -serve of another computer. TLS with a key per computer (made on first use, kept in the
 // user config folder); each side confirms the other's key the first time (like ssh), then remembers it.
 //
-// Messages are gzipped JSON, in that order: server name and version, client name and version and the server's history
-// version it has if nothing is new on its side (server confirms, or says it's still that version: done), client price
-// history, merged price history and its version back.
+// Messages are gzipped JSON, in that order: server name, version and protocol, client name, version, protocol and the
+// server's history version it has if nothing is new on its side (server confirms, or says it's still that version:
+// done), client price history, merged price history and its version back.
 
 import (
 	"bufio"
@@ -50,6 +50,7 @@ const (
 type message struct {
 	Name     string `json:",omitempty"` // computer name
 	Release  string `json:",omitempty"` // ahdbmerge version, with the name
+	Protocol int    `json:",omitempty"` // sync protocol version (see protocol), with the name
 	DryRun   bool   `json:",omitempty"`
 	Have     string `json:",omitempty"` // client: version of the server's history it has, when nothing new on its side
 	UpToDate bool   `json:",omitempty"` // server: still that version, nothing to sync
@@ -104,10 +105,17 @@ func (hs Houses) validate() error {
 			return fmt.Errorf("bad auction house %q", name)
 		}
 		if h.Items == nil {
-			h.Items = map[int64][]Point{}
+			h.Items = map[string][]Point{}
 		}
 		if h.Daily == nil {
-			h.Daily = map[int64][]Point{}
+			h.Daily = map[string][]Point{}
+		}
+		for _, m := range []map[string][]Point{h.Items, h.Daily} {
+			for key := range m {
+				if !itemKey.MatchString(key) {
+					return fmt.Errorf("bad item key %q", key)
+				}
+			}
 		}
 	}
 	return nil
@@ -295,24 +303,54 @@ func withPort(addr string) string {
 
 var versionWarned sync.Map // name and version already warned about
 
+// Sync protocol versions, sent with the name (none: 0, before them):
+// 1: item keys of random suffixes ("6604:12721", AHDB v2.8.0); an older ahdbmerge fails on the whole message with
+// them, it's sent the history without them.
+const protocol = 1
+
 // checkRelease warns (once per computer and version) when the other side runs another ahdbmerge version.
-func checkRelease(name, v string) {
+func checkRelease(name, v string, proto int) {
 	if v == cli.ShortVersion {
 		return
 	}
 	if _, done := versionWarned.LoadOrStore(name+" "+v, true); done {
 		return
 	}
+	without := ""
+	if proto < 1 {
+		without = " (synced without the prices per suffix, which it can't read)"
+	}
 	if v == "" {
 		v = "an older version"
 	}
-	log.Warnf("%s runs ahdbmerge %s, this computer %s: best to update both to the same version", name, v,
-		cli.ShortVersion)
+	log.Warnf("%s runs ahdbmerge %s, this computer %s: best to update both to the same version%s", name, v,
+		cli.ShortVersion, without)
+}
+
+// forProtocol is hs for an ahdbmerge of that protocol version: without the suffix keys when it can't read them.
+func (hs Houses) forProtocol(proto int) Houses {
+	if proto >= 1 {
+		return hs
+	}
+	out := Houses{}
+	for name, h := range hs {
+		c := &House{Items: map[string][]Point{}, Daily: map[string][]Point{}, Scans: h.Scans}
+		for _, m := range []struct{ from, to map[string][]Point }{{h.Items, c.Items}, {h.Daily, c.Daily}} {
+			for key, list := range m.from {
+				if !strings.Contains(key, ":") {
+					m.to[key] = list
+				}
+			}
+		}
+		out[name] = c
+	}
+	return out
 }
 
 // remote is the other side of a sync.
 type remote struct {
 	key, name string
+	protocol  int
 }
 
 var (
@@ -343,15 +381,16 @@ func syncWith(id *identity, addr string, local Houses, have string) (Houses, rem
 	if err != nil {
 		return nil, rem, "", err
 	}
-	rem.name = m.Name
+	rem.name, rem.protocol = m.Name, m.Protocol
 	switch {
 	case rem.key == id.key:
 		return nil, rem, "", errSelf
 	case !id.allow(rem.key, fmt.Sprintf("%s at %s", m.Name, addr), m.Name):
 		return nil, rem, "", errNotAllowed
 	}
-	checkRelease(rem.name, m.Release)
-	if err = send(conn, &message{Name: hostname(), Release: cli.ShortVersion, DryRun: *dryRun, Have: have}); err != nil {
+	checkRelease(rem.name, m.Release, m.Protocol)
+	hello := &message{Name: hostname(), Release: cli.ShortVersion, Protocol: protocol, DryRun: *dryRun, Have: have}
+	if err = send(conn, hello); err != nil {
 		return nil, rem, "", err
 	}
 	waiting := time.AfterFunc(2*time.Second, func() {
@@ -367,7 +406,7 @@ func syncWith(id *identity, addr string, local Houses, have string) (Houses, rem
 	case m.UpToDate:
 		return nil, rem, m.Version, nil
 	}
-	if err = send(conn, &message{Houses: local}); err != nil {
+	if err = send(conn, &message{Houses: local.forProtocol(rem.protocol)}); err != nil {
 		return nil, rem, "", err
 	}
 	if m, err = receive(r, maxDataSize); err != nil {
@@ -400,7 +439,7 @@ func answer(id *identity, conn *tls.Conn, srv answerer) error {
 	if err != nil {
 		return err
 	}
-	if err = send(conn, &message{Name: hostname(), Release: cli.ShortVersion}); err != nil {
+	if err = send(conn, &message{Name: hostname(), Release: cli.ShortVersion, Protocol: protocol}); err != nil {
 		return err
 	}
 	r := bufio.NewReader(conn)
@@ -409,12 +448,12 @@ func answer(id *identity, conn *tls.Conn, srv answerer) error {
 		return err
 	}
 	ip, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
-	rem, dry := remote{key: key, name: m.Name}, m.DryRun
+	rem, dry := remote{key: key, name: m.Name, protocol: m.Protocol}, m.DryRun
 	if key == id.key || !id.allow(key, fmt.Sprintf("Sync from %s (%s)", m.Name, ip), m.Name) {
 		_ = send(conn, &message{Error: "not allowed"})
 		return errNotAllowed
 	}
-	checkRelease(rem.name, m.Release)
+	checkRelease(rem.name, m.Release, m.Protocol)
 	if v := srv.version(); m.Have != "" && m.Have == v {
 		return send(conn, &message{UpToDate: true, Version: v})
 	}
@@ -429,5 +468,5 @@ func answer(id *identity, conn *tls.Conn, srv answerer) error {
 		return err
 	}
 	merged, v := srv.merge(rem, received(rem.name, m.Houses), dry)
-	return send(conn, &message{Houses: merged, Version: v})
+	return send(conn, &message{Houses: merged.forProtocol(rem.protocol), Version: v})
 }

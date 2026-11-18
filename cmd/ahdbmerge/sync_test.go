@@ -190,10 +190,10 @@ func TestLegacyHouses(t *testing.T) {
 		t.Fatalf("merged houses = %v", got)
 	}
 	// same faction, two rulesets: not combined
-	if n := len(merged["na-forever-rp Alliance"].Items[2589]); n != 2 {
+	if n := len(merged["na-forever-rp Alliance"].Items["2589"]); n != 2 {
 		t.Errorf("%d rp prices, want 2", n)
 	}
-	if n := len(merged["na-forever-pve Alliance"].Items[2589]); n != 2 {
+	if n := len(merged["na-forever-pve Alliance"].Items["2589"]); n != 2 {
 		t.Errorf("%d pve prices, want 2", n)
 	}
 	writeLocal(files, merged, false)
@@ -217,5 +217,66 @@ func TestLegacyHouses(t *testing.T) {
 	got := received("old", Houses{"Alliance": newHouse(), "na-forever-rp Alliance": newHouse()})
 	if len(got) != 1 || got["na-forever-rp Alliance"] == nil {
 		t.Errorf("received = %v", got)
+	}
+}
+
+func TestOldProtocolGetsNoSuffixes(t *testing.T) {
+	h := newHouse()
+	h.Items["2589"] = []Point{{1, 2, 3, 4}}
+	h.Items["6604:12721"] = []Point{{1, 2, 3, 4}}
+	h.Daily["6604:12721"] = []Point{{1, 2, 3, 4, 1}}
+	hs := Houses{"Horde": h}
+	old := hs.forProtocol(0)["Horde"]
+	if len(old.Items) != 1 || old.Items["2589"] == nil || len(old.Daily) != 0 {
+		t.Errorf("for protocol 0: items %v, daily %v", old.Items, old.Daily)
+	}
+	if len(h.Items) != 2 {
+		t.Error("forProtocol changed the original")
+	}
+	if hs.forProtocol(protocol)["Horde"] != h {
+		t.Error("the current protocol doesn't get the history as is")
+	}
+}
+
+// An old client (no protocol version) gets the merged history without the suffix keys, which stay on the server.
+func TestSyncOldClient(t *testing.T) {
+	fixedNow(t)
+	server, _ := identityIn(t.TempDir())
+	client, _ := identityIn(t.TempDir())
+	server.trusted[client.key] = &peer{Name: "client"}
+	dirB := wtf(t, accountA) // the server has suffix prices
+	addr, done := startServer(t, server, dirB, 1)
+	conn, err := tls.Dial("tcp", addr, client.tlsConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	r := bufio.NewReader(conn)
+	if m, err := receive(r, maxHelloSize); err != nil || m.Protocol != protocol {
+		t.Fatalf("server hello: %+v, %v", m, err)
+	}
+	// as before protocol versions: hello without one, then the (empty) history once the server says go
+	if err = send(conn, &message{Name: "old", Release: "0.3.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = receive(r, maxHelloSize); err != nil {
+		t.Fatal(err)
+	}
+	if err = send(conn, &message{Houses: Houses{}}); err != nil {
+		t.Fatal(err)
+	}
+	m, err := receive(r, maxDataSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = <-done; err != nil {
+		t.Fatalf("server: %v", err)
+	}
+	al := m.Houses["Alliance"]
+	if al == nil || al.Items["2589"] == nil || al.Items["6604:12721"] != nil {
+		t.Errorf("old client got %+v", al)
+	}
+	if _, onServer, _ := loadLocal(dirB); onServer["Alliance"].Items["6604:12721"] == nil {
+		t.Error("suffix prices lost on the server")
 	}
 }

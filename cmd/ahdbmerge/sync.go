@@ -310,16 +310,65 @@ func checkRelease(name, v string) {
 	if _, done := versionWarned.LoadOrStore(name+" "+v, true); done {
 		return
 	}
+	without := ""
+	if !knowsSuffixes(v) {
+		without = " (synced without the prices per suffix, which it can't read)"
+	}
 	if v == "" {
 		v = "an older version"
 	}
-	log.Warnf("%s runs ahdbmerge %s, this computer %s: best to update both to the same version", name, v,
-		cli.ShortVersion)
+	log.Warnf("%s runs ahdbmerge %s, this computer %s: best to update both to the same version%s", name, v,
+		cli.ShortVersion, without)
+}
+
+// suffixRelease is the first ahdbmerge that reads the prices per random suffix ("6604:12721" item keys): older ones
+// fail on the whole message, they're sent the history without them.
+var suffixRelease = [3]int{0, 4, 0}
+
+// knowsSuffixes returns whether an ahdbmerge of that release reads suffix keys: from suffixRelease on, or a build
+// that isn't a release ("dev", a pre-release or pseudo-version, e.g. built from a commit before the tag); "" is from
+// before ahdbmerge sent its version.
+func knowsSuffixes(release string) bool {
+	if release == "" {
+		return false
+	}
+	if strings.Contains(release, "-") {
+		return true
+	}
+	var v [3]int
+	for i, f := range strings.SplitN(strings.TrimPrefix(release, "v"), ".", 3) {
+		n, err := strconv.Atoi(f)
+		if err != nil {
+			return true
+		}
+		v[i] = n
+	}
+	return slices.Compare(v[:], suffixRelease[:]) >= 0
+}
+
+// forRelease is hs for an ahdbmerge of that release: without the suffix keys when it can't read them.
+func (hs Houses) forRelease(release string) Houses {
+	if knowsSuffixes(release) {
+		return hs
+	}
+	out := Houses{}
+	for name, h := range hs {
+		c := &House{Items: map[string][]Point{}, Daily: map[string][]Point{}, Scans: h.Scans}
+		for _, m := range []struct{ from, to map[string][]Point }{{h.Items, c.Items}, {h.Daily, c.Daily}} {
+			for key, list := range m.from {
+				if !strings.Contains(key, ":") {
+					m.to[key] = list
+				}
+			}
+		}
+		out[name] = c
+	}
+	return out
 }
 
 // remote is the other side of a sync.
 type remote struct {
-	key, name string
+	key, name, release string
 }
 
 var (
@@ -350,7 +399,7 @@ func syncWith(id *identity, addr string, local Houses, have string) (Houses, rem
 	if err != nil {
 		return nil, rem, "", err
 	}
-	rem.name = m.Name
+	rem.name, rem.release = m.Name, m.Release
 	switch {
 	case rem.key == id.key:
 		return nil, rem, "", errSelf
@@ -374,7 +423,7 @@ func syncWith(id *identity, addr string, local Houses, have string) (Houses, rem
 	case m.UpToDate:
 		return nil, rem, m.Version, nil
 	}
-	if err = send(conn, &message{Houses: local}); err != nil {
+	if err = send(conn, &message{Houses: local.forRelease(rem.release)}); err != nil {
 		return nil, rem, "", err
 	}
 	if m, err = receive(r, maxDataSize); err != nil {
@@ -416,7 +465,7 @@ func answer(id *identity, conn *tls.Conn, srv answerer) error {
 		return err
 	}
 	ip, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
-	rem, dry := remote{key: key, name: m.Name}, m.DryRun
+	rem, dry := remote{key: key, name: m.Name, release: m.Release}, m.DryRun
 	if key == id.key || !id.allow(key, fmt.Sprintf("Sync from %s (%s)", m.Name, ip), m.Name) {
 		_ = send(conn, &message{Error: "not allowed"})
 		return errNotAllowed
@@ -436,5 +485,5 @@ func answer(id *identity, conn *tls.Conn, srv answerer) error {
 		return err
 	}
 	merged, v := srv.merge(rem, received(rem.name, m.Houses), dry)
-	return send(conn, &message{Houses: merged, Version: v})
+	return send(conn, &message{Houses: merged.forRelease(rem.release), Version: v})
 }

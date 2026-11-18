@@ -11,7 +11,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"fortio.org/cli"
 )
+
+// cli.Main sets it in the real binary ("dev" for a local build): "" would be an ahdbmerge too old to send its version.
+func init() { cli.ShortVersion = "dev" }
 
 func wtf(t *testing.T, text string) string {
 	t.Helper()
@@ -217,5 +222,31 @@ func TestLegacyHouses(t *testing.T) {
 	got := received("old", Houses{"Alliance": newHouse(), "na-forever-rp Alliance": newHouse()})
 	if len(got) != 1 || got["na-forever-rp Alliance"] == nil {
 		t.Errorf("received = %v", got)
+	}
+}
+
+func TestOlderReleasesGetNoSuffixes(t *testing.T) {
+	for v, want := range map[string]bool{
+		"": false, "0.3.0": false, "v0.3.9": false, "0.4.0": true, "v0.4.1": true, "1.0.0": true, "dev": true,
+		"0.3.1-0.20261117000000-abcdef": true,
+	} {
+		if got := knowsSuffixes(v); got != want {
+			t.Errorf("knowsSuffixes(%q) = %v, want %v", v, got, want)
+		}
+	}
+	h := newHouse()
+	h.Items["2589"] = []Point{{1, 2, 3, 4}}
+	h.Items["6604:12721"] = []Point{{1, 2, 3, 4}}
+	h.Daily["6604:12721"] = []Point{{1, 2, 3, 4, 1}}
+	hs := Houses{"Horde": h}
+	old := hs.forRelease("0.3.0")["Horde"]
+	if len(old.Items) != 1 || old.Items["2589"] == nil || len(old.Daily) != 0 {
+		t.Errorf("for 0.3.0: items %v, daily %v", old.Items, old.Daily)
+	}
+	if len(h.Items) != 2 {
+		t.Error("forRelease changed the original")
+	}
+	if hs.forRelease("0.4.0")["Horde"] != h {
+		t.Error("0.4.0 doesn't get the history as is")
 	}
 }

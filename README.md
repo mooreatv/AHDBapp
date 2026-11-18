@@ -48,8 +48,9 @@ character of that account logs in with AHDB v2.7.0 or later, which moves it to t
 and `ahdbmerge` on all your computers together: an older `ahdbmerge` refuses to sync the new history.
 
 AHDB v2.8.0 and later also keep the prices of each suffix of random suffix gear ("of the Monkey"...), merged like the
-rest by `ahdbmerge` v0.4.0 and later. Older versions drop them from the files they write and can't sync with newer ones
-once there are some: update everywhere.
+rest by `ahdbmerge` v0.4.0 and later. Older versions drop them from the files they write; a newer one still syncs
+with them, without the prices per suffix (which stay on the computers that have them): update everywhere to share
+them.
 
 ### Between your computers
 

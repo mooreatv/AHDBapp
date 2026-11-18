@@ -252,8 +252,9 @@ func TestSyncOldClient(t *testing.T) {
 	}
 	defer conn.Close()
 	r := bufio.NewReader(conn)
-	if m, err := receive(r, maxHelloSize); err != nil || m.Protocol != protocol {
-		t.Fatalf("server hello: %+v, %v", m, err)
+	hello, err := receive(r, maxHelloSize)
+	if err != nil || hello.Protocol != protocol {
+		t.Fatalf("server hello: %+v, %v", hello, err)
 	}
 	// as before protocol versions: hello without one, then the (empty) history once the server says go
 	if err = send(conn, &message{Name: "old", Release: "0.3.0"}); err != nil {

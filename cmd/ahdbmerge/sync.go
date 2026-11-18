@@ -104,10 +104,17 @@ func (hs Houses) validate() error {
 			return fmt.Errorf("bad auction house %q", name)
 		}
 		if h.Items == nil {
-			h.Items = map[int64][]Point{}
+			h.Items = map[string][]Point{}
 		}
 		if h.Daily == nil {
-			h.Daily = map[int64][]Point{}
+			h.Daily = map[string][]Point{}
+		}
+		for _, m := range []map[string][]Point{h.Items, h.Daily} {
+			for key := range m {
+				if !itemKey.MatchString(key) {
+					return fmt.Errorf("bad item key %q", key)
+				}
+			}
 		}
 	}
 	return nil

@@ -4,6 +4,8 @@ package main
 // - items[itemID] = recent scans "ts,min,median,qty ts,min,median,qty ..." oldest first
 // - daily[itemID] = one entry per older day "ts,min,median,qty,scans ..." oldest first (ts of the day's last scan)
 // - scans = list of {ts, entries, items}
+// Random suffix gear on WoW Forever also has each suffix under "itemID:bonusIDs" (string key, e.g. "6604:12721"),
+// kept and merged like the items. Keys here are the Lua keys as text: "2589" (number key), "6604:12721".
 // Merged like the addon does with prices from trusted characters: same scan (ts) kept once, same day combined (lowest
 // min, median of the entry with more scans, scan weighted quantity, scans added; but an entry that is the other one
 // plus later scans replaces it, not to count scans twice), then compacted like the addon does
@@ -12,9 +14,11 @@ package main
 // on WoW Forever includes the region and ruleset (see Houses).
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"math"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -45,11 +49,21 @@ func sinceLaunch(list []Point) []Point {
 // Point is a recent scan {ts, min, median, qty} or a daily entry {ts, min, median, qty, scans}.
 type Point []int64
 
-// House is the price history of one auction house.
+// House is the price history of one auction house, by item key (see itemKey).
 type House struct {
-	Items map[int64][]Point
-	Daily map[int64][]Point
+	Items map[string][]Point
+	Daily map[string][]Point
 	Scans []Point
+}
+
+// itemKey matches the history keys: an itemID, or an itemID and the bonus IDs of a random suffix.
+var itemKey = regexp.MustCompile(`^[0-9]+(:[0-9]+)*$`)
+
+// keyID is the itemID of an item key.
+func keyID(key string) int64 {
+	id, _, _ := strings.Cut(key, ":")
+	n, _ := strconv.ParseInt(id, 10, 64)
+	return n
 }
 
 // Houses by name, as AHDB saves them (ADB:HouseKey): "Alliance", "Horde", "Neutral", on WoW Forever after the region
@@ -89,7 +103,7 @@ func (hs Houses) with(other Houses) Houses {
 }
 
 func newHouse() *House {
-	return &House{Items: map[int64][]Point{}, Daily: map[int64][]Point{}}
+	return &House{Items: map[string][]Point{}, Daily: map[string][]Point{}}
 }
 
 func parsePoints(s string) ([]Point, error) {
@@ -135,18 +149,26 @@ func points(v any) ([]Point, error) {
 	return nil, fmt.Errorf("unexpected history value %v", v)
 }
 
-func readItems(t *Table, into map[int64][]Point) error {
+func readItems(t *Table, into map[string][]Point) error {
 	for _, e := range t.Entries {
-		id, ok := e.Key.(float64)
-		if !ok {
+		var key string
+		switch k := e.Key.(type) {
+		case float64:
+			key = strconv.FormatInt(int64(k), 10)
+		case string:
+			if !strings.Contains(k, ":") || !itemKey.MatchString(k) {
+				continue
+			}
+			key = k
+		default:
 			continue
 		}
 		list, err := points(e.Val)
 		if err != nil {
-			return fmt.Errorf("item %v: %w", id, err)
+			return fmt.Errorf("item %v: %w", key, err)
 		}
 		if len(list) > 0 {
-			into[int64(id)] = list
+			into[key] = list
 		}
 	}
 	return nil
@@ -404,15 +426,15 @@ func (hs Houses) Merge(other Houses) {
 	}
 }
 
-// Counts returns items, recent points, daily entries, scans.
+// Counts returns items (itemIDs, suffixes not counted), recent points, daily entries, scans.
 func (h *House) Counts() (items, recent, daily, scans int) {
 	ids := map[int64]bool{}
-	for id, l := range h.Items {
-		ids[id] = true
+	for key, l := range h.Items {
+		ids[keyID(key)] = true
 		recent += len(l)
 	}
-	for id, l := range h.Daily {
-		ids[id] = true
+	for key, l := range h.Daily {
+		ids[keyID(key)] = true
 		daily += len(l)
 	}
 	return len(ids), recent, daily, len(h.Scans)
@@ -487,13 +509,24 @@ func joinPoints(list []Point) string {
 	return strings.Join(parts, " ")
 }
 
-func sortedIDs(m map[int64][]Point) []int64 {
-	ids := make([]int64, 0, len(m))
-	for id := range m {
-		ids = append(ids, id)
+// sortedKeys: by itemID, the item before its suffixes.
+func sortedKeys(m map[string][]Point) []string {
+	keys := slices.Collect(maps.Keys(m))
+	slices.SortFunc(keys, func(a, b string) int {
+		if c := cmp.Compare(keyID(a), keyID(b)); c != 0 {
+			return c
+		}
+		return cmp.Compare(a, b)
+	})
+	return keys
+}
+
+// luaKey is the key as written in the saved variables: [2589], ["6604:12721"].
+func luaKey(key string) string {
+	if strings.Contains(key, ":") {
+		return strconv.Quote(key)
 	}
-	slices.Sort(ids)
-	return ids
+	return key
 }
 
 // Lua writes the houses table (the value of ["houses"] in the saved variables), nl as line ending.
@@ -515,12 +548,12 @@ func (hs Houses) Lua(nl string) string {
 		w(2, fmt.Sprintf("[%q] = {", n))
 		for _, part := range []struct {
 			key string
-			m   map[int64][]Point
+			m   map[string][]Point
 		}{{"items", h.Items}, {"daily", h.Daily}} {
 			w(3, fmt.Sprintf("[%q] = {", part.key))
-			for _, id := range sortedIDs(part.m) {
-				if len(part.m[id]) > 0 {
-					w(4, fmt.Sprintf("[%d] = %q,", id, joinPoints(part.m[id])))
+			for _, key := range sortedKeys(part.m) {
+				if len(part.m[key]) > 0 {
+					w(4, fmt.Sprintf("[%s] = %q,", luaKey(key), joinPoints(part.m[key])))
 				}
 			}
 			w(3, "},")

@@ -190,10 +190,10 @@ func TestLegacyHouses(t *testing.T) {
 		t.Fatalf("merged houses = %v", got)
 	}
 	// same faction, two rulesets: not combined
-	if n := len(merged["na-forever-rp Alliance"].Items[2589]); n != 2 {
+	if n := len(merged["na-forever-rp Alliance"].Items["2589"]); n != 2 {
 		t.Errorf("%d rp prices, want 2", n)
 	}
-	if n := len(merged["na-forever-pve Alliance"].Items[2589]); n != 2 {
+	if n := len(merged["na-forever-pve Alliance"].Items["2589"]); n != 2 {
 		t.Errorf("%d pve prices, want 2", n)
 	}
 	writeLocal(files, merged, false)

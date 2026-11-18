@@ -22,6 +22,8 @@ AuctionDBForeverSaved = {
 			["items"] = {
 				[2589] = "86434200,100,120,5 86436000,110,130,4",
 				[4306] = "86436000,500,600,20",
+				["6604:12721"] = "86436000,3000,3500,2",
+				["not an item"] = "86436000,1,1,1",
 			},
 			["daily"] = {
 				[2589] = "85572000,50,60,1,1 86004000,90,100,6,3",
@@ -126,19 +128,24 @@ func TestMergeAndWrite(t *testing.T) {
 	a.Merge(b)
 	al := a["Alliance"]
 	want := []Point{{86434200, 100, 120, 5}, {86435100, 95, 125, 6}, {86436000, 110, 130, 4}}
-	if !reflect.DeepEqual(al.Items[2589], want) {
-		t.Errorf("merged recent = %v", al.Items[2589])
+	if !reflect.DeepEqual(al.Items["2589"], want) {
+		t.Errorf("merged recent = %v", al.Items["2589"])
 	}
 	if len(al.Scans) != 3 || al.Scans[1][0] != 86435100 {
 		t.Errorf("merged scans = %v", al.Scans)
 	}
-	if a["Horde"] == nil || len(a["Horde"].Items[2589]) != 1 {
+	if a["Horde"] == nil || len(a["Horde"].Items["2589"]) != 1 {
 		t.Errorf("Horde not merged in: %v", a["Horde"])
 	}
 	// write back: the rest of the file unchanged, the result reads back the same
 	text := accountA[:e.Start] + a.Lua("\n") + accountA[e.End:]
 	if !strings.Contains(text, `["lastHouse"] = "Alliance",`) || !strings.Contains(text, `"back\\slash }"`) {
 		t.Errorf("rest of the file changed:\n%s", text)
+	}
+	// suffix variants kept (after their item), anything else dropped
+	if !strings.Contains(text, "[4306] = \"86436000,500,600,20\",\n\t\t\t\t[\"6604:12721\"] = \"86436000,3000,3500,2\",") ||
+		strings.Contains(text, "not an item") {
+		t.Errorf("suffix keys not written as expected:\n%s", text)
 	}
 	again, _ := read(t, text)
 	if !reflect.DeepEqual(again, a) {
@@ -191,12 +198,12 @@ func TestCompactDropsPreLaunch(t *testing.T) {
 		h.Scans = append(h.Scans, Point{pre + int64(i)*60, 100, 10})
 	}
 	h.Scans = append(h.Scans, Point{now - 60, 100, 10})
-	h.Items[1] = []Point{{pre, 100, 120, 4}, {launch - 1, 90, 130, 5}, {launch, 85, 120, 3}, {now - 60, 80, 110, 2}}
-	h.Items[2] = []Point{{pre, 10, 20, 3}}
-	h.Daily[1] = []Point{{pre - 3*day, 50, 60, 1, 1}}
-	h.Daily[2] = []Point{{pre - 3*day, 1, 2, 3, 1}}
+	h.Items["1"] = []Point{{pre, 100, 120, 4}, {launch - 1, 90, 130, 5}, {launch, 85, 120, 3}, {now - 60, 80, 110, 2}}
+	h.Items["2"] = []Point{{pre, 10, 20, 3}}
+	h.Daily["1"] = []Point{{pre - 3*day, 50, 60, 1, 1}}
+	h.Daily["2"] = []Point{{pre - 3*day, 1, 2, 3, 1}}
 	other := newHouse()
-	other.Daily[1] = []Point{{launch - day + 3600, 50, 60, 1, 1}}
+	other.Daily["1"] = []Point{{launch - day + 3600, 50, 60, 1, 1}}
 	hs := Houses{"Horde": h}
 	hs.Merge(Houses{"Horde": other})
 	if n := hs.PreLaunch(); n != 36 { // 30 scans, 3 recent, 3 daily
@@ -206,8 +213,8 @@ func TestCompactDropsPreLaunch(t *testing.T) {
 	if want := []Point{{now - 60, 100, 10}}; !reflect.DeepEqual(h.Scans, want) {
 		t.Errorf("scans = %v", h.Scans)
 	}
-	if want := []Point{{launch, 85, 120, 3}, {now - 60, 80, 110, 2}}; !reflect.DeepEqual(h.Items[1], want) {
-		t.Errorf("recent = %v", h.Items[1])
+	if want := []Point{{launch, 85, 120, 3}, {now - 60, 80, 110, 2}}; !reflect.DeepEqual(h.Items["1"], want) {
+		t.Errorf("recent = %v", h.Items["1"])
 	}
 	if len(h.Daily) != 0 || len(h.Items) != 1 {
 		t.Errorf("items = %v, daily = %v", h.Items, h.Daily)
@@ -226,23 +233,23 @@ func TestCompact(t *testing.T) {
 	for i := range recentScans {
 		h.Scans = append(h.Scans, Point{now - 2*day + int64(i)*60, 100, 10})
 	}
-	h.Items[1] = []Point{{d3, 100, 120, 4}, {d3 + 60, 0, 0, 0}, {d3 + 120, 90, 130, 5}, {now - 60, 80, 110, 2}}
-	h.Items[2] = []Point{{d3, 10, 20, 3}}
-	h.Daily[1] = []Point{{now - 200*day, 1, 2, 3, 1}, {now - 5*day, 50, 60, 1, 1}}
-	h.Daily[2] = []Point{{now - 200*day, 1, 2, 3, 1}}
+	h.Items["1"] = []Point{{d3, 100, 120, 4}, {d3 + 60, 0, 0, 0}, {d3 + 120, 90, 130, 5}, {now - 60, 80, 110, 2}}
+	h.Items["2"] = []Point{{d3, 10, 20, 3}}
+	h.Daily["1"] = []Point{{now - 200*day, 1, 2, 3, 1}, {now - 5*day, 50, 60, 1, 1}}
+	h.Daily["2"] = []Point{{now - 200*day, 1, 2, 3, 1}}
 	h.Compact(now)
-	if want := []Point{{now - 60, 80, 110, 2}}; !reflect.DeepEqual(h.Items[1], want) {
-		t.Errorf("recent = %v", h.Items[1])
+	if want := []Point{{now - 60, 80, 110, 2}}; !reflect.DeepEqual(h.Items["1"], want) {
+		t.Errorf("recent = %v", h.Items["1"])
 	}
 	// lowest non 0 min, lower median of the non 0 medians, rounded average quantity (9/3), 3 scans
-	if want := []Point{{now - 5*day, 50, 60, 1, 1}, {d3 + 120, 90, 120, 3, 3}}; !reflect.DeepEqual(h.Daily[1], want) {
-		t.Errorf("daily = %v", h.Daily[1])
+	if want := []Point{{now - 5*day, 50, 60, 1, 1}, {d3 + 120, 90, 120, 3, 3}}; !reflect.DeepEqual(h.Daily["1"], want) {
+		t.Errorf("daily = %v", h.Daily["1"])
 	}
-	if _, ok := h.Items[2]; ok {
-		t.Errorf("item 2 recent = %v", h.Items[2])
+	if _, ok := h.Items["2"]; ok {
+		t.Errorf("item 2 recent = %v", h.Items["2"])
 	}
-	if want := []Point{{d3, 10, 20, 3, 1}}; !reflect.DeepEqual(h.Daily[2], want) {
-		t.Errorf("item 2 daily = %v", h.Daily[2])
+	if want := []Point{{d3, 10, 20, 3, 1}}; !reflect.DeepEqual(h.Daily["2"], want) {
+		t.Errorf("item 2 daily = %v", h.Daily["2"])
 	}
 	hs := Houses{"Horde": h}
 	before := hs.Lua("\n")
@@ -257,14 +264,14 @@ func TestCompactFewScans(t *testing.T) {
 	now := int64(1000*day + 36000)
 	h := newHouse()
 	h.Scans = []Point{{now - 8*day, 100, 10}, {now - 5*day, 100, 10}}
-	h.Items[1] = []Point{{now - 8*day, 100, 120, 4}, {now - 6*day, 90, 130, 5}, {now - 7*day, 80, 110, 2}}
-	sortByTS(h.Items[1])
+	h.Items["1"] = []Point{{now - 8*day, 100, 120, 4}, {now - 6*day, 90, 130, 5}, {now - 7*day, 80, 110, 2}}
+	sortByTS(h.Items["1"])
 	h.Compact(now)
-	if want := []Point{{now - 6*day, 90, 130, 5}}; !reflect.DeepEqual(h.Items[1], want) {
-		t.Errorf("recent = %v", h.Items[1])
+	if want := []Point{{now - 6*day, 90, 130, 5}}; !reflect.DeepEqual(h.Items["1"], want) {
+		t.Errorf("recent = %v", h.Items["1"])
 	}
-	if want := []Point{{now - 8*day, 100, 120, 4, 1}, {now - 7*day, 80, 110, 2, 1}}; !reflect.DeepEqual(h.Daily[1], want) {
-		t.Errorf("daily = %v", h.Daily[1])
+	if want := []Point{{now - 8*day, 100, 120, 4, 1}, {now - 7*day, 80, 110, 2, 1}}; !reflect.DeepEqual(h.Daily["1"], want) {
+		t.Errorf("daily = %v", h.Daily["1"])
 	}
 }
 
@@ -273,7 +280,7 @@ func TestAddedCompacted(t *testing.T) {
 	now := int64(1000*day + 36000)
 	d3 := now - 3*day
 	h := newHouse()
-	h.Items[1] = []Point{{d3, 100, 120, 4}, {d3 + 60, 90, 130, 5}, {now - 60, 80, 110, 2}}
+	h.Items["1"] = []Point{{d3, 100, 120, 4}, {d3 + 60, 90, 130, 5}, {now - 60, 80, 110, 2}}
 	old := Houses{"Horde": h}
 	merged := Houses{}
 	merged.Merge(old)
@@ -282,7 +289,7 @@ func TestAddedCompacted(t *testing.T) {
 		t.Errorf("only compacted: %q", got)
 	}
 	o := newHouse()
-	o.Items[1] = []Point{{now - 30, 70, 100, 1}}
+	o.Items["1"] = []Point{{now - 30, 70, 100, 1}}
 	merged.Merge(Houses{"Horde": o})
 	merged.Compact(now)
 	if got, want := old.Added(merged, now), "Horde AH: +0 items, +1 recent scan prices, +0 daily, +0 scans"; got != want {
@@ -301,7 +308,7 @@ func TestAddedFullScans(t *testing.T) {
 	merged := Houses{}
 	merged.Merge(old)
 	o := newHouse()
-	o.Items[1] = []Point{{now - 30, 70, 100, 1}}
+	o.Items["1"] = []Point{{now - 30, 70, 100, 1}}
 	o.Scans = []Point{{now - 30, 1, 1}}
 	merged.Merge(Houses{"Horde": o})
 	merged.Compact(now)
